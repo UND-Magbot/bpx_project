@@ -77,7 +77,7 @@ docker run --rm bpx-ros bash /bpx/docker/test_fake.sh     # 18개 항목 자동 
 - LegOdom 원점이 재연결·재부팅 때 리셋되는지 (map_to_odom 은 매 프레임 다시 계산하므로 영향 적음)
 - IMU 장착 방향·frame (지금은 `base_link` 로 발행), 배터리 전류 단위/부호, 관절 토크 단위 (`effort` 비워둠)
 - 관절 각 부호·영점이 URDF 와 일치하는지 (RViz 자세 vs 실물)
-- 미니PC·라이다 전원: BPX 외부 전원 출력 없음 (5V USB 뿐) → 별도 배터리 필요 여부
+- 미니PC·라이다 전원: 후면 BAT Power Port(33V, 배터리 직결 추정)의 허용 전류·커넥터 규격 → 제조사 확인 후 DC-DC 로 공급할지, 별도 배터리를 쓸지 결정
 - 탑재 무게 ≤ 5 kg
 
 ## 다음 단계 (미니PC·라이다 결정 후)

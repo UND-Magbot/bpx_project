@@ -15,7 +15,12 @@ MirrorMe(mirrormetech.com) **BPX 4족로봇**을 로봇에 올린 **미니PC**(U
   - 주행 순서: connect → setStandUp 반복 → state==6 → setVelocityControlFlag(True) → setVelocity
   - 재연결 후 SDK 는 0 아닌 명령을 재전송하지 않음 → 서기 절차부터 다시
   - setZeroPositionsFlag 는 네 다리 발·종아리·무릎 접지(엎드림)에서만
-- 미확인: 관절 부호·영점, IMU 장착 frame, 배터리 전류/토크 단위, 미니PC IP 할당 방식, 외부 전원 출력(없음 → 별도 배터리)
+- 전원 (사용자 매뉴얼 p13 그림 + 판매처 3digital.tech, 제조사 사양서 아님)
+  - 배터리 8S2P NMC 18650, 공칭 28.8 V (24.0~33.6 V), 5.8 Ah / 167 Wh, 최대 방전 20 A, 무부하 약 1.5 h
+  - 후면 **BAT Power Port = GND / 33V** (배터리 직결 추정 → 24~33.6 V 변동, 허용 전류 미표기). 5V: 전면 USB·LED, S-Bus
+  - 미니PC = MSI PRO Cubi Z AI 8M (Ryzen 7 255), 어댑터 120 W, USB-C PD 입력 최대 100 W → BAT 포트에서 받으려면 광입력 DC-DC 필요
+- 리모컨: 펌웨어가 S-Bus(RC 수신기)·USB 게임패드(옵션)·앱을 직접 처리. SDK 에 스틱 입력 API 없음, `getControlMode()` 로 RemoteControl=1 / Navigator=2 확인만 가능. 앱/리모컨과 SDK 우선순위 문서 없음
+- 미확인: 관절 부호·영점, IMU 장착 frame, 배터리 전류/토크 단위, 미니PC IP 할당 방식, BAT 포트 허용 전류·커넥터 규격
 - 참고 저장소: github.com/mirrormerobotics (bpx_sdk_open, BPX, BPX-Pro, mirrorme_rl_train, robot-mirrorme-bpx, primitive-mirrorme-bpx-quadruped-rbnx, bpx-mindplus-extension)
 
 ## 폴더
