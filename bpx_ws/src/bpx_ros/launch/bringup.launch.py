@@ -3,6 +3,7 @@
   ros2 launch bpx_ros bringup.launch.py                          # 실기, 읽기 전용
   ros2 launch bpx_ros bringup.launch.py allow_motion:=true       # 실기, 서기/주행 허용
   ros2 launch bpx_ros bringup.launch.py backend:=fake allow_motion:=true rviz:=true   # 로봇 없이
+  foxglove:=true -> 원격 PC 에서 Foxglove 로 ws://<미니PC>:8765 접속 (보기 전용: 발행/서비스 호출 불가)
 """
 import os
 
@@ -31,6 +32,8 @@ def generate_launch_description():
         DeclareLaunchArgument('allow_motion', default_value='false'),
         DeclareLaunchArgument('cmd_topic', default_value='/cmd_vel'),
         DeclareLaunchArgument('rviz', default_value='false'),
+        DeclareLaunchArgument('foxglove', default_value='false'),
+        DeclareLaunchArgument('foxglove_port', default_value='8765'),
 
         Node(
             package='bpx_ros', executable='bpx_bridge', name='bpx_bridge', output='screen',
@@ -52,5 +55,15 @@ def generate_launch_description():
             package='rviz2', executable='rviz2', output='screen',
             arguments=['-d', os.path.join(share, 'rviz', 'bpx.rviz')],
             condition=IfCondition(LaunchConfiguration('rviz')),
+        ),
+        # 원격 보기. WiFi 의 누구나 접속 가능하므로 clientPublish/services/parameters 는 끈다
+        # (켜 두면 원격에서 /cmd_vel 발행·stand 호출이 가능해짐)
+        Node(
+            package='foxglove_bridge', executable='foxglove_bridge', output='screen',
+            parameters=[{
+                'port': ParameterValue(LaunchConfiguration('foxglove_port'), value_type=int),
+                'capabilities': ['connectionGraph', 'assets'],
+            }],
+            condition=IfCondition(LaunchConfiguration('foxglove')),
         ),
     ])

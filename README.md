@@ -52,6 +52,18 @@ ping 10.21.20.1
    `ros2 run teleop_twist_keyboard teleop_twist_keyboard` (저속부터)
 5. 비상: `ros2 service call /bpx_bridge/damping std_srvs/srv/Trigger` 또는 브리지 Ctrl+C(정지 후 앉기). **하드웨어 E-stop 은 후면 E-Stop 포트**
 
+## 원격 PC 에서 보기 (Foxglove, 보기 전용)
+
+미니PC 는 부팅 시 `bpx-bridge.service` 가 `foxglove:=true` 로 실행 → `ws://<미니PC>:8765` 열림.
+Windows 쪽에는 ROS 설치가 필요 없다.
+
+1. Foxglove 앱 설치(foxglove.dev/download) 또는 브라우저로 app.foxglove.dev
+2. Open connection → **Foxglove WebSocket** → `ws://192.168.30.52:8765`
+   (WiFi DHCP 주소라 바뀔 수 있음 → 공유기에서 고정 할당 권장. `ws://undsw-PRO-Cubi-Z-AI-8M-MS-B032.local:8765` 도 가능)
+3. 3D 패널: Fixed frame `odom`, URDF 는 `/robot_description` 에서 자동 로드 (첫 로드 때 메시 ~20 MB 전송)
+
+보기 전용이다 (capabilities = connectionGraph, assets). 원격에서 /cmd_vel 발행·stand 호출 불가 — 조종은 미니PC SSH 에서.
+
 ## 로봇 없이 시험 (Windows, Docker Desktop)
 
 ```powershell

@@ -24,7 +24,7 @@ fi
 sudo apt install -y \
   git python3-colcon-common-extensions python3-pip python3-numpy \
   ros-humble-robot-state-publisher ros-humble-tf2-tools ros-humble-teleop-twist-keyboard \
-  ros-humble-pointcloud-to-laserscan
+  ros-humble-pointcloud-to-laserscan ros-humble-foxglove-bridge
 
 echo "[2] bpx_sdk (Python 3.10 wheel)"
 case "$ARCH" in

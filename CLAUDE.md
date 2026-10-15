@@ -23,7 +23,8 @@ MirrorMe(mirrormetech.com) **BPX 4족로봇**을 로봇에 올린 **미니PC**(U
   - `bpx_ros/bridge.py` 핵심 노드: /cmd_vel → setVelocity, LegOdom → `/odom/mc_odom` + TF odom→base_link, /joint_states, /imu/data, /battery_state, /bpx/status, 서비스 `~/stand ~/sit ~/damping`, 토픽 `/bpx/motion`(관제 훅)
   - `bpx_ros/backend.py` 실제 SDK / Fake 백엔드 (같은 메서드명)
   - `bpx_ros/map_to_odom.py` Zishen 이식
-  - `launch/bringup.launch.py` (backend:=sdk|fake, allow_motion, robot_ip, cmd_topic, rviz)
+  - `launch/bringup.launch.py` (backend:=sdk|fake, allow_motion, robot_ip, cmd_topic, rviz, foxglove)
+    - foxglove_bridge 는 **보기 전용**(capabilities=connectionGraph,assets) 유지. clientPublish/services 켜면 WiFi 에서 누구나 조종 가능해짐
   - `config/bridge.yaml`, `urdf/bpx.urdf`(base_link 루트 추가), `meshes/`
 - `scripts/bpx_cmd.py` ROS 없이 단발 동작 (check/watch/stand/sit/damping/zero, --fake)
 - `setup/` setup_minipc.sh, bpx_env.sh(ROS_DOMAIN_ID=90), net_bpx.sh(nmcli 고정 IP: eno1=로봇, enp4s0=라이다), netplan-bpx.yaml(참고용)
@@ -42,5 +43,5 @@ MirrorMe(mirrormetech.com) **BPX 4족로봇**을 로봇에 올린 **미니PC**(U
 
 ## 진행 상황
 - 2026-10-13: 자료 분석, bpx_ros 패키지·설치 스크립트·Docker 테스트(18/18) 완료. 실기 미실행
-- 2026-10-15: 새 미니PC에 Linux 설치 + SSH 설정. setup_minipc.sh 실행(ROS 2 Humble, bpx_sdk 1.0.9, 빌드) → fake 시험 18/18. nmcli 고정 IP 저장(eno1=로봇, enp4s0=라이다), git 저장소, RViz fake 확인, systemd 자동 실행(읽기 전용), 상태머신 단위시험 14/14
+- 2026-10-15: 새 미니PC에 Linux 설치 + SSH 설정. setup_minipc.sh 실행(ROS 2 Humble, bpx_sdk 1.0.9, 빌드) → fake 시험 18/18. nmcli 고정 IP 저장(eno1=로봇, enp4s0=라이다), git 저장소, RViz fake 확인, systemd 자동 실행(읽기 전용), 상태머신 단위시험 14/14, Foxglove 원격 보기(8765, 보기 전용)
 - 다음 단계: 라이다 선정(3D Mid-360 vs 2D) → 드라이버/매핑/위치추정/표준 Nav2
