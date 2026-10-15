@@ -18,6 +18,7 @@ setup(
         ('share/' + package_name + '/rviz', glob('rviz/*.rviz')),
     ],
     install_requires=['setuptools'],
+    tests_require=['pytest'],
     zip_safe=True,
     maintainer='und',
     description='MirrorMe BPX quadruped ROS 2 bringup',

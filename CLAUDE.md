@@ -35,10 +35,12 @@ MirrorMe(mirrormetech.com) **BPX 4족로봇**을 로봇에 올린 **미니PC**(U
 - **안전 기본값 유지**: allow_motion 기본 false, auto_stand 기본 false, /cmd_vel 타임아웃 0.5 s, 속도 제한(0.4/0.25/1.0)
 - 실기에서 로봇을 움직이는 명령(stand, cmd_vel 발행, zero, damping)은 **사용자 확인 후** 실행. 읽기(check, topic echo)는 자유
 - SDK 소유는 한 프로세스만 (브리지 실행 중 bpx_cmd.py 금지, 앱/Mind+ 동시 조종 금지)
-- 변경 후 `colcon build --symlink-install` 및 fake 백엔드로 먼저 확인
+  - 미니PC는 부팅 시 `bpx-bridge.service`(읽기 전용)가 자동 실행됨 → bpx_cmd.py·수동 launch 전에 `sudo systemctl stop bpx-bridge`
+- 변경 후 `colcon build --symlink-install` + `colcon test --packages-select bpx_ros`(상태머신 14항목) + fake 백엔드로 먼저 확인
+  - 수동 fake 시험은 `ROS_DOMAIN_ID`를 90 아닌 값으로 (서비스 브리지와 토픽 섞임 방지)
 - 업무일지는 `docs/업무일지_YYYY-MM-DD.md`, "Noah 일일 업무 보고" 형식, "~했다" 체
 
 ## 진행 상황
 - 2026-10-13: 자료 분석, bpx_ros 패키지·설치 스크립트·Docker 테스트(18/18) 완료. 실기 미실행
-- 2026-10-15: 새 미니PC에 Linux 설치 + SSH 설정. setup_minipc.sh 실행(ROS 2 Humble, bpx_sdk 1.0.9, 빌드) → fake 시험 18/18. 유선 NIC = eno1, enp4s0 (netplan 미적용)
+- 2026-10-15: 새 미니PC에 Linux 설치 + SSH 설정. setup_minipc.sh 실행(ROS 2 Humble, bpx_sdk 1.0.9, 빌드) → fake 시험 18/18. nmcli 고정 IP 저장(eno1=로봇, enp4s0=라이다), git 저장소, RViz fake 확인, systemd 자동 실행(읽기 전용), 상태머신 단위시험 14/14
 - 다음 단계: 라이다 선정(3D Mid-360 vs 2D) → 드라이버/매핑/위치추정/표준 Nav2

@@ -1,0 +1,22 @@
+# BPX 브리지 자동 실행 (읽기 전용 — allow_motion=false 고정, 로봇을 움직이지 않음)
+# 설치: sudo bash setup/install_service.sh
+# 수동 조작 전(bpx_cmd.py 등)에는 SDK 소유 충돌 방지를 위해: sudo systemctl stop bpx-bridge
+# 로그: journalctl -u bpx-bridge -f
+[Unit]
+Description=BPX ROS 2 bridge (read-only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=undsw
+ExecStart=/bin/bash -c 'source /home/undsw/bpx/setup/bpx_env.sh && exec ros2 launch bpx_ros bringup.launch.py allow_motion:=false'
+# ros2 launch 는 SIGINT 로 자식 노드를 정상 종료시킨다. 남은 프로세스는 타임아웃 후 강제 종료
+KillSignal=SIGINT
+KillMode=mixed
+TimeoutStopSec=20
+Restart=on-failure
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
