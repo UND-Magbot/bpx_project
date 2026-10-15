@@ -1,0 +1,14 @@
+# ※ 현재 미니PC(NetworkManager 관리)는 setup/net_bpx.sh 사용. 이 파일은 networkd 환경용 참고
+# 미니PC 유선 NIC 고정 IP 예시 -> /etc/netplan/60-bpx.yaml 로 복사 후 `sudo netplan apply`
+# NIC 이름은 `ip -br link` 로 확인 (Zishen PL64 는 enp3s0 / eno2 였음)
+#  - 로봇 NIC : BPX RJ45 직결. 로봇 = 10.21.20.1  (게이트웨이 설정 금지 — 인터넷은 WiFi 로)
+#  - 라이다 NIC: 라이다 대역 (Mid-360 기본 192.168.1.1xx 대역이면 아래 그대로)
+network:
+  version: 2
+  ethernets:
+    enp3s0:                       # <- 로봇 쪽 NIC 이름으로 변경
+      dhcp4: false
+      addresses: [10.21.20.10/24]
+    eno2:                         # <- 라이다 쪽 NIC 이름으로 변경
+      dhcp4: false
+      addresses: [192.168.1.50/24]

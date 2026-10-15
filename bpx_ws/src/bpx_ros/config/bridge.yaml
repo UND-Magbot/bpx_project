@@ -1,0 +1,26 @@
+# bpx_bridge 기본 파라미터. launch 인자(backend, robot_ip, allow_motion)가 이 값을 덮어씀.
+bpx_bridge:
+  ros__parameters:
+    backend: sdk            # sdk | fake(로봇 없이 시험)
+    robot_ip: 10.21.20.1    # RJ45 직결. 로봇 핫스팟이면 10.21.40.1
+    state_port: 9873        # 로봇 -> 미니PC 상태 UDP (방화벽 허용 필요)
+    state_rate: 50          # 상태 업로드 Hz (1~200)
+    cmd_rate: 50            # setVelocity 전송 Hz
+    publish_rate: 50        # /odom, /joint_states, /imu 발행 Hz
+
+    allow_motion: false     # false = 읽기 전용. 첫 실기 연결은 반드시 false 로
+    auto_stand: false       # true 면 연결되자마자 서기 (Zishen cmd_vel_bridge 동작)
+    sit_on_exit: true       # Ctrl+C 시 정지 후 앉기
+
+    # 속도 제한 (SDK Walk 상한 1.5/0.5/2.0 보다 보수적으로 시작, Zishen 운용값 기준)
+    max_vx: 0.4
+    max_vy: 0.25
+    max_wz: 1.0
+    cmd_timeout: 0.5        # /cmd_vel 끊기면 0 속도
+
+    cmd_topic: /cmd_vel     # Nav2 연동 시 /cmd_vel_smoothed 등
+    odom_topic: /odom/mc_odom   # Zishen 스택(map_to_odom, Nav2 params)과 같은 이름
+    odom_frame: odom
+    base_frame: base_link
+    imu_frame: base_link    # IMU 장착 위치/외부 파라미터 미확인
+    publish_tf: true
