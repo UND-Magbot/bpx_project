@@ -16,6 +16,7 @@ import math
 import time
 
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from geometry_msgs.msg import Twist, TransformStamped
@@ -338,7 +339,8 @@ def main():
     node = BpxBridge()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
+        # SIGINT -> KeyboardInterrupt, SIGTERM(또는 SIGINT 무시 상속 상태) -> rclpy 가 context 를 내려 ExternalShutdown
         pass
     finally:
         node.shutdown_robot()

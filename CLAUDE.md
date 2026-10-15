@@ -25,6 +25,8 @@ MirrorMe(mirrormetech.com) **BPX 4족로봇**을 로봇에 올린 **미니PC**(U
   - `bpx_ros/map_to_odom.py` Zishen 이식
   - `launch/bringup.launch.py` (backend:=sdk|fake, allow_motion, robot_ip, cmd_topic, rviz, foxglove)
     - foxglove_bridge 는 **보기 전용**(capabilities=connectionGraph,assets) 유지. clientPublish/services 켜면 WiFi 에서 누구나 조종 가능해짐
+  - `launch/nav.launch.py` 표준 Nav2 (MPPI Omni, NavFn, 빈 지도 `maps/empty.yaml`, map→odom 고정). `config/nav2.yaml`
+    - 라이다 전이라 장애물 레이어 없음 → **실기 자율주행 금지**, fake 시험 전용. velocity_smoother 출력 = /cmd_vel
   - `config/bridge.yaml`, `urdf/bpx.urdf`(base_link 루트 추가), `meshes/`
 - `scripts/bpx_cmd.py` ROS 없이 단발 동작 (check/watch/stand/sit/damping/zero, --fake)
 - `setup/` setup_minipc.sh, bpx_env.sh(ROS_DOMAIN_ID=90), net_bpx.sh(nmcli 고정 IP: eno1=로봇, enp4s0=라이다), netplan-bpx.yaml(참고용)
@@ -39,9 +41,10 @@ MirrorMe(mirrormetech.com) **BPX 4족로봇**을 로봇에 올린 **미니PC**(U
   - 미니PC는 부팅 시 `bpx-bridge.service`(읽기 전용)가 자동 실행됨 → bpx_cmd.py·수동 launch 전에 `sudo systemctl stop bpx-bridge`
 - 변경 후 `colcon build --symlink-install` + `colcon test --packages-select bpx_ros`(상태머신 14항목) + fake 백엔드로 먼저 확인
   - 수동 fake 시험은 `ROS_DOMAIN_ID`를 90 아닌 값으로 (서비스 브리지와 토픽 섞임 방지)
+  - 비대화형 셸에서 `ros2 launch ... &` 로 띄우면 launch 가 SIGINT 무시 상태를 상속 → `kill -INT <launch>` 가 안 먹고 노드가 남음. 시험 정리는 노드 PID 에 직접 SIGINT
 - 업무일지는 `docs/업무일지_YYYY-MM-DD.md`, "Noah 일일 업무 보고" 형식, "~했다" 체
 
 ## 진행 상황
 - 2026-10-13: 자료 분석, bpx_ros 패키지·설치 스크립트·Docker 테스트(18/18) 완료. 실기 미실행
-- 2026-10-15: 새 미니PC에 Linux 설치 + SSH 설정. setup_minipc.sh 실행(ROS 2 Humble, bpx_sdk 1.0.9, 빌드) → fake 시험 18/18. nmcli 고정 IP 저장(eno1=로봇, enp4s0=라이다), git 저장소, RViz fake 확인, systemd 자동 실행(읽기 전용), 상태머신 단위시험 14/14, Foxglove 원격 보기(8765, 보기 전용)
+- 2026-10-15: 새 미니PC에 Linux 설치 + SSH 설정. setup_minipc.sh 실행(ROS 2 Humble, bpx_sdk 1.0.9, 빌드) → fake 시험 18/18. nmcli 고정 IP 저장(eno1=로봇, enp4s0=라이다), git 저장소, RViz fake 확인, systemd 자동 실행(읽기 전용), 상태머신 단위시험 14/14, Foxglove 원격 보기(8765, 보기 전용), 표준 Nav2 fake 주행 2/2 성공
 - 다음 단계: 라이다 선정(3D Mid-360 vs 2D) → 드라이버/매핑/위치추정/표준 Nav2

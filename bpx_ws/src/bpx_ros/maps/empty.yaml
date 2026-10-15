@@ -1,0 +1,8 @@
+# 빈 지도 20 x 20 m (라이다 전 Nav2 시험용). 원점 = 지도 중앙
+image: empty.pgm
+mode: trinary
+resolution: 0.05
+origin: [-10.0, -10.0, 0.0]
+negate: 0
+occupied_thresh: 0.65
+free_thresh: 0.25

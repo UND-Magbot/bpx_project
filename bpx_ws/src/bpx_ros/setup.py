@@ -16,6 +16,7 @@ setup(
         ('share/' + package_name + '/urdf', glob('urdf/*.urdf')),
         ('share/' + package_name + '/meshes', glob('meshes/*')),
         ('share/' + package_name + '/rviz', glob('rviz/*.rviz')),
+        ('share/' + package_name + '/maps', glob('maps/*')),
     ],
     install_requires=['setuptools'],
     tests_require=['pytest'],
