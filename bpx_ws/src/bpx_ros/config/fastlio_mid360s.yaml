@@ -1,0 +1,54 @@
+# FAST-LIO (hku-mars ROS2) — Livox Mid-360S 용. 원본 config/mid360.yaml 기준
+#  - 입력: /livox/lidar (CustomMsg, lidar.launch.py xfer_format:=1), /livox/imu (내장 IMU ICM40609, 200 Hz)
+#  - 출력: /Odometry, /cloud_registered, /path, TF camera_init -> body (body = 라이다 내장 IMU)
+#  - 지도 저장: ros2 service call /map_save std_srvs/srv/Trigger -> map_file_path (mapping.launch.py 가 지정)
+/**:
+    ros__parameters:
+        feature_extract_enable: false
+        point_filter_num: 3
+        max_iteration: 3
+        filter_size_surf: 0.5
+        filter_size_map: 0.5
+        cube_side_length: 1000.0
+        runtime_pos_log_enable: false
+        map_file_path: ""
+
+        common:
+            lid_topic:  "/livox/lidar"
+            imu_topic:  "/livox/imu"
+            time_sync_en: false
+            time_offset_lidar_to_imu: 0.0
+
+        preprocess:
+            lidar_type: 1                # Livox
+            scan_line:  4
+            # 라이다에서 이 거리 안의 점은 버림. 로봇 몸체·다리가 찍히면 늘린다 (장착 후 확인)
+            blind: 0.5
+            timestamp_unit: 3
+            scan_rate: 10
+
+        mapping:
+            acc_cov: 0.1
+            gyr_cov: 0.1
+            b_acc_cov: 0.0001
+            b_gyr_cov: 0.0001
+            fov_degree:    360.0
+            det_range:     100.0         # Mid-360S cut-off 100 m (10% 반사율 기준 40 m)
+            # 라이다-내장 IMU 외부 파라미터: Mid-360 값. Mid-360S 값은 미확인이라 온라인 추정을 켜 둔다
+            extrinsic_est_en:  true
+            extrinsic_T: [ -0.011, -0.02329, 0.04412 ]
+            extrinsic_R: [ 1., 0., 0.,
+                           0., 1., 0.,
+                           0., 0., 1.]
+
+        publish:
+            path_en: true
+            effect_map_en: false
+            map_en: true
+            scan_publish_en:  true
+            dense_publish_en: false
+            scan_bodyframe_pub_en: true
+
+        pcd_save:
+            pcd_save_en: true
+            interval: -1                 # 전체를 한 파일로 (긴 매핑은 메모리 주의)
