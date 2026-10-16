@@ -26,7 +26,8 @@ from std_msgs.msg import String
 from std_srvs.srv import Trigger
 from tf2_ros import TransformBroadcaster
 
-from bpx_ros.backend import (JOINT_NAMES, MS_LYING, MS_MOTION, make_backend)
+from bpx_ros.backend import (CM_NAVIGATOR, CM_REMOTE, JOINT_NAMES, MS_LYING, MS_MOTION,
+                             make_backend)
 
 STAND_TIMEOUT_S = 15.0   # Mind+ 확장과 같은 값
 SIT_TIMEOUT_S = 15.0
@@ -58,6 +59,7 @@ class BpxBridge(Node):
         self.allow_motion = p("allow_motion", False).value
         self.auto_stand = p("auto_stand", False).value
         self.sit_on_exit = p("sit_on_exit", True).value
+        self.yield_to_remote = p("yield_to_remote", True).value
         self.max_vx = p("max_vx", 0.4).value
         self.max_vy = p("max_vy", 0.25).value
         self.max_wz = p("max_wz", 1.0).value
@@ -81,6 +83,9 @@ class BpxBridge(Node):
         self.last_connect_try = 0.0
         self.ever_connected = False      # 한 번 붙은 뒤에는 SDK 자동 재연결에 맡김
         self.motion_state = None
+        self.control_mode = None
+        self.nav_seen = False            # ready 진입 후 Navigator(SDK 조종)를 확인했는지
+        self.nav_warned = False
         self.vx = self.vy = self.wz = 0.0
         self.last_cmd = 0.0
 
@@ -146,6 +151,7 @@ class BpxBridge(Node):
         if mode != self.mode:
             self.get_logger().info(f"mode {self.mode} -> {mode}")
         self.mode, self.mode_t, self.last_req = mode, time.monotonic(), 0.0
+        self.nav_seen = self.nav_warned = False
 
     def zero_and_flag_off(self):
         try:
@@ -191,6 +197,13 @@ class BpxBridge(Node):
         except Exception:
             self.motion_state = None
         ms = self.motion_state
+        try:
+            self.control_mode = self.m.getControlMode()
+        except Exception:
+            self.control_mode = None
+
+        if self.mode == "ready" and self.check_takeover(now):
+            return
 
         if self.mode == "standing":
             if ms == MS_MOTION:
@@ -220,6 +233,25 @@ class BpxBridge(Node):
                 self.get_logger().warn(f"motion state={ms} (Motion 아님) -> idle")
                 self.zero_and_flag_off()
                 self.set_mode("idle")
+
+    def check_takeover(self, now):
+        """앱/리모컨이 조종을 가져갔으면 스트리밍을 멈추고 True.
+
+        우선순위 규칙이 문서에 없으므로 Navigator 를 한 번 확인한 뒤 RemoteControl 로 바뀐 경우만
+        탈취로 본다. Navigator 가 끝내 안 보이면 경고만 한다 (실기에서 동작 확인 필요).
+        """
+        cm = self.control_mode
+        if cm == CM_NAVIGATOR:
+            self.nav_seen = True
+        elif cm == CM_REMOTE and self.nav_seen and self.yield_to_remote:
+            self.get_logger().warn("앱/리모컨이 조종을 가져감 (ControlMode=RemoteControl) -> 정지, idle")
+            self.zero_and_flag_off()
+            self.set_mode("idle")
+            return True
+        elif not self.nav_seen and not self.nav_warned and now - self.mode_t > 3.0:
+            self.get_logger().warn(f"ready 3초 지났는데 ControlMode={cm} (Navigator 아님) -> 실기 동작 확인 필요")
+            self.nav_warned = True
+        return False
 
     # ---------------- 속도 스트리밍 (cmd_rate) ----------------
     def stream(self):
@@ -296,8 +328,16 @@ class BpxBridge(Node):
 
     def publish_slow(self):
         st = {"backend": self.backend_kind, "connected": self.connected, "mode": self.mode,
-              "motion_state": self.motion_state, "allow_motion": self.allow_motion}
+              "motion_state": self.motion_state, "control_mode": self.control_mode,
+              "allow_motion": self.allow_motion}
         if self.connected:
+            try:
+                st["gait"] = self.m.getCurrentGait()
+                temps = self.m.getMotorTemperature()
+                if finite(temps, 12):
+                    st["motor_temp_max"] = round(max(float(t) for t in temps[:12]), 1)   # 단위 미확인(℃ 추정)
+            except Exception:
+                pass
             try:
                 lvl = self.m.getBatteryLevel()
                 if lvl is not None and 0 <= int(lvl) <= 100:

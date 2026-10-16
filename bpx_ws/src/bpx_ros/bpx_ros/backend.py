@@ -16,6 +16,11 @@ MS_PASSIVE = 2
 MS_SITDOWN = 3
 MS_MOTION = 6
 
+# ControlMode: 현재 속도 제어 주체 (SDK 1.0.9 README / request_robot_state.h)
+CM_UNKNOWN = 0
+CM_REMOTE = 1       # 앱 / 리모컨
+CM_NAVIGATOR = 2    # SDK (내비게이션)
+
 JOINT_NAMES = [
     f"{leg}_{j}_joint"
     for leg in ("fl", "fr", "hl", "hr")
@@ -42,6 +47,7 @@ class FakeMotion:
     """로봇 없이 브리지/launch/RViz/Nav2 연동을 시험하기 위한 가짜 MotionLevelControl.
 
     상태 전이(서기 2초, 앉기 2초)와 속도 적분 odom 만 흉내낸다. 물리/보행은 없다.
+    ControlMode 는 속도 플래그를 켜면 Navigator, 끄면 RemoteControl 로 가정한다 (실기 미확인).
     """
 
     STAND_POSE = (0.0, 0.8, -1.5)
@@ -53,6 +59,7 @@ class FakeMotion:
         self._state = MS_LYING
         self._target = None          # (목표 상태, 완료 시각)
         self._vel_flag = False
+        self._control_mode = CM_REMOTE
         self._cmd = (0.0, 0.0, 0.0)
         self._cmd_t = 0.0
         self._x = self._y = self._yaw = 0.0
@@ -71,7 +78,9 @@ class FakeMotion:
     def isConnected(self): return self._connected
 
     # --- 명령 ---
-    def setVelocityControlFlag(self, enabled): self._vel_flag = bool(enabled)
+    def setVelocityControlFlag(self, enabled):
+        self._vel_flag = bool(enabled)
+        self._control_mode = CM_NAVIGATOR if enabled else CM_REMOTE
     def setVelocity(self, x, y, yaw):
         self._step()
         self._cmd = (float(x), float(y), float(yaw))
@@ -116,6 +125,8 @@ class FakeMotion:
         self._step()
         return self._state
     def getCurrentGait(self): return 0
+    def getControlMode(self): return self._control_mode
+    def getMotorTemperature(self): return [35.0] * 12
     def getLegOdom(self):
         vx, vy, wz = self._step()
         return {

@@ -12,7 +12,7 @@ import rclpy
 
 from bpx_ros import backend as backend_mod
 from bpx_ros import bridge as bridge_mod
-from bpx_ros.backend import MS_LYING, MS_PASSIVE, FakeMotion
+from bpx_ros.backend import CM_REMOTE, MS_LYING, MS_PASSIVE, FakeMotion
 
 TICK = 0.1   # supervise 주기
 
@@ -29,7 +29,8 @@ class FakeClock:
 
 
 class RecFake(FakeMotion):
-    """FakeMotion + SDK 로 나간 명령 기록. stuck=True 면 서기 요청을 무시(안 일어남)."""
+    """FakeMotion + SDK 로 나간 명령 기록. stuck=True 면 서기 요청을 무시(안 일어남).
+    cm_fixed 를 정하면 속도 플래그와 무관하게 ControlMode 를 그 값으로 고정."""
 
     RECORDED = ("connect", "setVelocity", "setVelocityControlFlag",
                 "setStandUp", "setSitDown", "setDamping", "setZeroPositionsFlag")
@@ -38,6 +39,7 @@ class RecFake(FakeMotion):
         super().__init__()
         self.calls = []
         self.stuck = False
+        self.cm_fixed = None
 
     def __getattribute__(self, name):
         attr = super().__getattribute__(name)
@@ -46,9 +48,12 @@ class RecFake(FakeMotion):
 
             def wrapped(*a):
                 calls.append((name, *a))
-                if name == "setStandUp" and super(RecFake, self).__getattribute__("stuck"):
+                if name == "setStandUp" and self.stuck:
                     return True
-                return attr(*a)
+                ret = attr(*a)
+                if self.cm_fixed is not None:
+                    self._control_mode = self.cm_fixed
+                return ret
             return wrapped
         return attr
 
@@ -181,6 +186,37 @@ def test_leaving_motion_state_stops_streaming(node, clock):
     node.cmd_cb(_twist(0.3))
     node.stream()
     assert "setVelocity" not in node.m.names()
+
+
+# ---------------------------------------------------------------- 조종권 (ControlMode)
+def test_remote_takeover_stops_streaming(node, clock):
+    make_ready(node, clock)
+    run(node, clock, 0.3)                       # Navigator 확인
+    assert node.nav_seen
+    node.m._control_mode = CM_REMOTE            # 앱/리모컨이 조종을 가져감
+    run(node, clock, 0.1)
+    assert node.mode == "idle"
+    assert node.m.last("setVelocityControlFlag") == ("setVelocityControlFlag", False)
+    node.m.calls.clear()
+    node.cmd_cb(_twist(0.3))
+    node.stream()
+    assert "setVelocity" not in node.m.names()
+
+
+def test_never_navigator_only_warns(node, clock):
+    node.m.cm_fixed = CM_REMOTE                 # 플래그를 켜도 Navigator 로 안 바뀌는 펌웨어라면
+    make_ready(node, clock)
+    run(node, clock, 5.0)
+    assert node.mode == "ready" and node.nav_warned   # 멈추지 않고 경고만
+
+
+def test_yield_to_remote_disabled(node, clock):
+    node.yield_to_remote = False
+    make_ready(node, clock)
+    run(node, clock, 0.3)
+    node.m._control_mode = CM_REMOTE
+    run(node, clock, 1.0)
+    assert node.mode == "ready"
 
 
 # ---------------------------------------------------------------- 속도 명령
