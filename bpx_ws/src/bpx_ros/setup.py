@@ -28,6 +28,7 @@ setup(
         'console_scripts': [
             'bpx_bridge = bpx_ros.bridge:main',
             'map_to_odom = bpx_ros.map_to_odom:main',
+            'gravity_logger = bpx_ros.gravity_logger:main',
         ],
     },
 )

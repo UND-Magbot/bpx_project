@@ -2,9 +2,11 @@
 
   ros2 launch bpx_ros mapping.launch.py map_name:=office
   ros2 service call /map_save std_srvs/srv/Trigger        # -> ~/bpx/maps/office.pcd
+  python3 ~/bpx/scripts/align_map_gravity.py ~/bpx/maps/office.pcd   # -> office_level.pcd (위치추정용)
 
-지금은 FAST-LIO 자체 TF(camera_init -> body)로만 돈다. 로봇 TF(map/odom/base_link)와의 연결은
-위치추정(NDT) 단계에서 정한다.
+로봇을 멈춘 상태로 시작할 것: 처음 1초 IMU 로 중력 방향을 재서 office.gravity.json 에 저장한다
+(FAST-LIO 지도는 출발 자세 기준이라 기울어 있음).
+FAST-LIO 자체 TF(camera_init -> body)로만 돈다. 로봇 TF 와는 위치추정 단계에서 연결.
 """
 import os
 
@@ -22,12 +24,18 @@ def _fastlio(context):
     name = LaunchConfiguration('map_name').perform(context)
     os.makedirs(MAP_DIR, exist_ok=True)
     share = get_package_share_directory('bpx_ros')
-    return [Node(
-        package='fast_lio', executable='fastlio_mapping', name='laser_mapping', output='screen',
-        parameters=[os.path.join(share, 'config', 'fastlio_mid360s.yaml'),
-                    {'map_file_path': os.path.join(MAP_DIR, name + '.pcd'),
-                     'use_sim_time': LaunchConfiguration('use_sim_time').perform(context) == 'true'}],
-    )]
+    sim = LaunchConfiguration('use_sim_time').perform(context) == 'true'
+    return [
+        Node(
+            package='fast_lio', executable='fastlio_mapping', name='laser_mapping', output='screen',
+            parameters=[os.path.join(share, 'config', 'fastlio_mid360s.yaml'),
+                        {'map_file_path': os.path.join(MAP_DIR, name + '.pcd'), 'use_sim_time': sim}],
+        ),
+        Node(
+            package='bpx_ros', executable='gravity_logger', name='gravity_logger', output='screen',
+            parameters=[{'output': os.path.join(MAP_DIR, name + '.gravity.json'), 'use_sim_time': sim}],
+        ),
+    ]
 
 
 def generate_launch_description():

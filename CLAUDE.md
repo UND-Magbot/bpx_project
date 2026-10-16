@@ -65,4 +65,12 @@ MirrorMe(mirrormetech.com) **BPX 4족로봇**을 로봇에 올린 **미니PC**(U
   - FAST-LIO 매핑: `mapping.launch.py map_name:=X` → `/map_save` → `~/bpx/maps/X.pcd`
   - PointCloud2(xfer_format 0) bag → CustomMsg 변환: `scripts/livox_pc2_to_custom.py <in> <out>`
   - 공개 bag 검증: AIST "Driving SLAM Test with Livox MID360" (Zenodo 14841855, CC BY 4.0) 277 s / 1.07 km 루프 매핑 정상
+    bag 은 `lidar_ws/bags/` 에 둔다 (/tmp 는 재부팅 때 지워짐)
+  - 지도 수평 보정: mapping.launch.py 가 시작 1초 IMU 로 `<map>.gravity.json` 저장 → `scripts/align_map_gravity.py <map>.pcd` → `<map>_level.pcd`
+- 위치추정: lidar_localization_ros2 (main ba9f7f06db, NDT_OMP) + ndt_omp_ros2, `lidar_ws` (install_livox.sh)
+  - Nav2 모드(기본) = map→odom 발행, odom→base_link 는 브리지 LegOdom. bag 시험처럼 odom 없으면 `enable_map_odom_tf:=false`
+  - 입력은 PointCloud2 → 위치추정 때 lidar.launch.py `xfer_format:=0` (매핑 FAST-LIO 는 1)
+  - 4족+Mid-360 참고: 패키지 docs/go2_mid360_quickstart.md
+- **빌드 메모리 주의**: NDT/PCL 컴파일은 파일 하나가 최대 3.6 GB. `-j8` 로 빌드하다 미니PC(14 GB)가 두 번 멈춰 재부팅됨 (2026-10-16).
+  lidar_ws 빌드는 `MAKEFLAGS=-j2 --parallel-workers 1` + `systemd-run -p MemoryMax=9G` 로 (install_livox.sh 에 반영)
 - 다음 단계: Mid-360S 드라이버(Livox-SDK2 + livox_ros_driver2) → FAST-LIO 매핑 / NDT 위치추정 → Nav2 장애물 레이어
