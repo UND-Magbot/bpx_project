@@ -19,7 +19,14 @@ add_static() {   # 연결이름 NIC 주소
 }
 
 echo "[BPX] 유선 NIC 고정 IP"
+# 랜선이 빠져 있어도 IP 유지 -> 라이다 드라이버/브리지를 먼저 띄워도 bind 실패하지 않음
+# (livox_ros_driver2 는 시작 때 host_ip bind 실패하면 재시도하지 않는다)
+printf '[main]\nignore-carrier=interface-name:%s,interface-name:%s\n' "$ROBOT_NIC" "$LIDAR_NIC" \
+  > /etc/NetworkManager/conf.d/90-bpx-ignore-carrier.conf
+systemctl reload NetworkManager
 add_static bpx-robot "$ROBOT_NIC" 10.21.20.10/24
 add_static bpx-lidar "$LIDAR_NIC" 192.168.1.50/24
+nmcli con up bpx-robot >/dev/null 2>&1 || true
+nmcli con up bpx-lidar >/dev/null 2>&1 || true
 nmcli -f NAME,DEVICE,TYPE con show | grep -E 'NAME|bpx-'
 echo "로봇 랜선을 $ROBOT_NIC 에 꽂은 뒤: ping 10.21.20.1"

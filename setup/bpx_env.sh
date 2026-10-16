@@ -1,6 +1,7 @@
 # BPX ROS 2 환경 (~/.bashrc 에서 source)
 BPX_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source /opt/ros/humble/setup.bash
+[ -f "$BPX_DIR/lidar_ws/install/setup.bash" ] && source "$BPX_DIR/lidar_ws/install/setup.bash"   # livox_ros_driver2
 [ -f "$BPX_DIR/bpx_ws/install/setup.bash" ] && source "$BPX_DIR/bpx_ws/install/setup.bash"
 
 # Zishen 은 89 + Zenoh. BPX 는 우선 기본 DDS(FastDDS) + 별도 도메인으로 시작.

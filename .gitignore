@@ -3,3 +3,4 @@ bpx_ws/install/
 bpx_ws/log/
 __pycache__/
 *.pyc
+lidar_ws/

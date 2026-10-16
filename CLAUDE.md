@@ -54,4 +54,9 @@ MirrorMe(mirrormetech.com) **BPX 4족로봇**을 로봇에 올린 **미니PC**(U
 - 2026-10-15: 새 미니PC에 Linux 설치 + SSH 설정. setup_minipc.sh 실행(ROS 2 Humble, bpx_sdk 1.0.9, 빌드) → fake 시험 18/18. nmcli 고정 IP 저장(eno1=로봇, enp4s0=라이다), git 저장소, RViz fake 확인, systemd 자동 실행(읽기 전용), 상태머신 단위시험 14/14, Foxglove 원격 보기(8765, 보기 전용), 표준 Nav2 fake 주행 2/2 성공
 - 라이다 결정: **Livox Mid-360S** (9~27 V, 권장 12 V, 평상 6.5 W, 기동 18 W 약 8초, 영하 자가가열 14 W, 100BASE-TX, M12 12핀, IMU ICM40609)
   - BPX BAT 포트(최대 33.6 V)는 27 V 초과 → **직결 금지**, 12 V DC-DC 경유
+  - 드라이버: `setup/install_livox.sh` (Livox-SDK2 v1.3.1 → /usr/local, livox_ros_driver2 1.2.6 → `lidar_ws/`, git 제외)
+  - `ros2 launch bpx_ros lidar.launch.py lidar_ip:=192.168.1.1XX` (XX = SN 끝 두 자리, host 192.168.1.50 = enp4s0)
+    → /livox/lidar (CustomMsg, xfer_format:=0 이면 PointCloud2), /livox/imu, TF base_link→livox_frame(장착 위치 미측정, 0)
+  - 유선 NIC 는 ignore-carrier 로 랜선 없어도 IP 유지 (드라이버가 시작 때 bind 실패하면 재시도 안 함)
+  - 라이다 미연결 상태의 드라이버는 SIGINT/SIGTERM 을 무시 → 노드에 직접 신호 보낼 땐 SIGKILL 필요
 - 다음 단계: Mid-360S 드라이버(Livox-SDK2 + livox_ros_driver2) → FAST-LIO 매핑 / NDT 위치추정 → Nav2 장애물 레이어
