@@ -52,6 +52,7 @@ MirrorMe(mirrormetech.com) **BPX 4족로봇**을 로봇에 올린 **미니PC**(U
 ## 진행 상황
 - 2026-10-13: 자료 분석, bpx_ros 패키지·설치 스크립트·Docker 테스트(18/18) 완료. 실기 미실행
 - 2026-10-15: 새 미니PC에 Linux 설치 + SSH 설정. setup_minipc.sh 실행(ROS 2 Humble, bpx_sdk 1.0.9, 빌드) → fake 시험 18/18. nmcli 고정 IP 저장(eno1=로봇, enp4s0=라이다), git 저장소, RViz fake 확인, systemd 자동 실행(읽기 전용), 상태머신 단위시험 14/14, Foxglove 원격 보기(8765, 보기 전용), 표준 Nav2 fake 주행 2/2 성공
+- 2026-10-16: ControlMode 감시, Mid-360S 드라이버·FAST-LIO·NDT 위치추정 설치, 공개 Mid-360 bag 으로 매핑·지도 수평 보정·위치추정 검증 (하드웨어 없이)
 - 라이다 결정: **Livox Mid-360S** (9~27 V, 권장 12 V, 평상 6.5 W, 기동 18 W 약 8초, 영하 자가가열 14 W, 100BASE-TX, M12 12핀, IMU ICM40609)
   - BPX BAT 포트(최대 33.6 V)는 27 V 초과 → **직결 금지**, 12 V DC-DC 경유
   - 드라이버: `setup/install_livox.sh` (Livox-SDK2 v1.3.1 → /usr/local, livox_ros_driver2 1.2.6 → `lidar_ws/`, git 제외)
@@ -71,6 +72,10 @@ MirrorMe(mirrormetech.com) **BPX 4족로봇**을 로봇에 올린 **미니PC**(U
   - Nav2 모드(기본) = map→odom 발행, odom→base_link 는 브리지 LegOdom. bag 시험처럼 odom 없으면 `enable_map_odom_tf:=false`
   - 입력은 PointCloud2 → 위치추정 때 lidar.launch.py `xfer_format:=0` (매핑 FAST-LIO 는 1)
   - 4족+Mid-360 참고: 패키지 docs/go2_mid360_quickstart.md
+  - 위치 출력 토픽은 `/localization/pose_with_covariance` (이 launch 에선 /pcl_pose 발행 안 함). 갱신은 스캔 주기(10 Hz), 발행은 20 Hz
+  - AIST bag 검증(2026-10-16): 수평 보정 지도 + NDT_OMP(IMU 기능 끔), 초기 자세 = 중력 보정 회전.
+    277 s 전 구간 추적, 거부 0건, 공백 없음, 정합 ~8 ms, 고도 -3.2~6.8 m(보정 FAST-LIO 와 일치), 끝점 FAST-LIO 와 0.3 m 이내.
+    한계: 같은 주행으로 만든 지도라 다른 날·다른 경로에서의 성능은 실기에서 확인 필요. IMU 사전적분은 Livox g 단위 설정 후 켤 것
 - **빌드 메모리 주의**: NDT/PCL 컴파일은 파일 하나가 최대 3.6 GB. `-j8` 로 빌드하다 미니PC(14 GB)가 두 번 멈춰 재부팅됨 (2026-10-16).
   lidar_ws 빌드는 `MAKEFLAGS=-j2 --parallel-workers 1` + `systemd-run -p MemoryMax=9G` 로 (install_livox.sh 에 반영)
 - 다음 단계: Mid-360S 드라이버(Livox-SDK2 + livox_ros_driver2) → FAST-LIO 매핑 / NDT 위치추정 → Nav2 장애물 레이어
