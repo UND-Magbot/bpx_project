@@ -59,4 +59,10 @@ MirrorMe(mirrormetech.com) **BPX 4족로봇**을 로봇에 올린 **미니PC**(U
     → /livox/lidar (CustomMsg, xfer_format:=0 이면 PointCloud2), /livox/imu, TF base_link→livox_frame(장착 위치 미측정, 0)
   - 유선 NIC 는 ignore-carrier 로 랜선 없어도 IP 유지 (드라이버가 시작 때 bind 실패하면 재시도 안 함)
   - 라이다 미연결 상태의 드라이버는 SIGINT/SIGTERM 을 무시 → 노드에 직접 신호 보낼 땐 SIGKILL 필요
+  - **Livox IMU 가속도 단위 = g** (정지 시 |a|≈1.0). FAST-LIO 는 내부 정규화로 무관, 다른 패키지에 줄 땐 ×9.81
+  - FAST-LIO `camera_init` 은 출발 시 센서 자세 기준(중력 정렬 아님) → 센서가 기울면 지도도 기움.
+    2D 지도/NDT/Nav2 로 넘길 때 중력 정렬 필요 (AIST bag: 초기 7.3° 기울기로 고도 46 m 왜곡, 정렬 후 ~10 m)
+  - FAST-LIO 매핑: `mapping.launch.py map_name:=X` → `/map_save` → `~/bpx/maps/X.pcd`
+  - PointCloud2(xfer_format 0) bag → CustomMsg 변환: `scripts/livox_pc2_to_custom.py <in> <out>`
+  - 공개 bag 검증: AIST "Driving SLAM Test with Livox MID360" (Zenodo 14841855, CC BY 4.0) 277 s / 1.07 km 루프 매핑 정상
 - 다음 단계: Mid-360S 드라이버(Livox-SDK2 + livox_ros_driver2) → FAST-LIO 매핑 / NDT 위치추정 → Nav2 장애물 레이어
