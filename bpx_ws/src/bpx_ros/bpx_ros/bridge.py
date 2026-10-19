@@ -34,6 +34,10 @@ STAND_TIMEOUT_S = 15.0   # Mind+ 확장과 같은 값
 SIT_TIMEOUT_S = 15.0
 RESEND_S = 0.2           # 서기/앉기 요청 재전송 간격 (Mind+ INTERVAL)
 ZERO_SETTLE_S = 1.0      # 영점 설정 후 서기까지 대기 (SDK 예제·Mind+ reset_joints 와 같음)
+# 충전 판정 (실기 2026-10-19: 충전 중 +2.38 A, 분리 -0.64 A). 충전 중이면 로봇이 max_vel 을 0 으로 잠그고
+# 서기 요청을 무시한다. getChargerIn1/2 는 이 펌웨어에서 충전 중에도 0 이라 쓰지 않는다
+CHARGE_ON_A = 0.5
+CHARGE_OFF_A = 0.2
 
 
 def clamp(v, lim):
@@ -86,6 +90,8 @@ class BpxBridge(Node):
         self.ever_connected = False      # 한 번 붙은 뒤에는 SDK 자동 재연결에 맡김
         self.motion_state = None
         self.zero_until = 0.0
+        self.charging = False
+        self.battery_current = None
         self.control_mode = None
         self.nav_seen = False            # ready 진입 후 Navigator(SDK 조종)를 확인했는지
         self.nav_warned = False
@@ -172,6 +178,8 @@ class BpxBridge(Node):
             self.get_logger().warn("관절 영점 설정 전송")
             return True, "관절 영점 설정 전송 (1초 후 일어서기 가능)"
         if what == "stand":
+            if self.charging:
+                return False, f"충전 중이라 일어설 수 없음 (배터리 전류 +{self.battery_current:.2f} A) -> 충전기를 빼세요"
             self.set_mode("standing")
         elif what == "sit":
             self.zero_and_flag_off()
@@ -233,6 +241,17 @@ class BpxBridge(Node):
                 self.set_mode("standing")
             elif self.auto_stand and self.allow_motion and self.mode == "idle":
                 self.set_mode("standing")
+
+        try:
+            cur = self.m.getBatteryCurrent()
+            if cur is not None and math.isfinite(float(cur)):
+                self.battery_current = float(cur)
+                was = self.charging
+                self.charging = cur > CHARGE_ON_A or (was and cur > CHARGE_OFF_A)
+                if self.charging != was:
+                    self.get_logger().warn(f"충전 {'시작' if self.charging else '끝'} (배터리 전류 {cur:+.2f} A)")
+        except Exception:
+            pass
 
         prev_ms = self.motion_state
         try:
@@ -376,12 +395,11 @@ class BpxBridge(Node):
         publish_battery = self.status_tick % 5 == 1
         st = {"backend": self.backend_kind, "connected": self.connected, "mode": self.mode,
               "motion_state": self.motion_state, "control_mode": self.control_mode,
-              "allow_motion": self.allow_motion}
+              "allow_motion": self.allow_motion, "charging": self.charging,
+              "battery_current": self.battery_current}
         if self.connected:
             try:
-                # 충전기가 꽂혀 있으면 동작을 거부할 수 있음 -> 진단용으로 표시
-                st["charger"] = [getattr(self.m, "getChargerIn1", lambda: None)(),
-                                 getattr(self.m, "getChargerIn2", lambda: None)()]
+                # 충전 중이면 로봇이 max_vel 을 [0,0,0] 으로 잠근다 (실기 확인)
                 st["max_vel"] = getattr(self.m, "getMaxVelocity", lambda: None)()
                 st["sub_gait"] = getattr(self.m, "getSubGait", lambda: None)()
             except Exception:

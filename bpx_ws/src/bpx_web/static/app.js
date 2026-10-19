@@ -30,8 +30,9 @@ function render() {
 
   $('s-motion').textContent = conn ? (MOTION[st.motion_state] ?? st.motion_state) : '-';
   $('s-mode').textContent = alive ? (MODE[st.mode] ?? st.mode) : '-';
-  const b = S && S.battery;
-  $('s-batt').textContent = b && b.percent != null ? `${b.percent}%  (${b.current})` : (st.battery != null ? `${st.battery}%` : '-');
+  const cur = st.battery_current != null ? ` · ${st.battery_current > 0 ? '+' : ''}${st.battery_current.toFixed(2)} A` : '';
+  $('s-batt').textContent = st.battery != null ? `${st.battery}%${cur}${st.charging ? ' (충전 중)' : ''}` : '-';
+  $('charging').hidden = !(conn && st.charging);
   $('s-temp').textContent = st.motor_temp_max != null ? `${st.motor_temp_max} ℃` : '-';
   const o = S && S.odom;
   $('s-vel').textContent = o && o.vx != null ? `${o.vx} / ${o.vy} m/s · ${o.wz} rad/s` : '-';
@@ -47,6 +48,8 @@ function render() {
   if (could !== canControl) { if (!canControl && joyTimer) stopJoy(); drawJoy(); }
   for (const id of ['b-stand', 'b-sit', 'b-damp', 'estop']) $(id).disabled = !canControl;
   $('b-zero').disabled = !(canControl && st.motion_state === 0 && st.mode === 'idle');
+  if (st.charging) { $('b-stand').disabled = true; $('b-stand').title = '충전 중에는 로봇이 일어서지 않습니다. 충전기를 빼세요'; }
+  else $('b-stand').title = '';
   $('motion').disabled = !conn;
   $('motion-hint').textContent = !conn ? '로봇이 연결되어야 조종할 수 있습니다.'
     : st.allow_motion ? '조종 모드 켜짐: 버튼과 조이스틱이 로봇에 전달됩니다.' : '조종 모드를 켜야 동작 버튼과 조종이 전달됩니다.';

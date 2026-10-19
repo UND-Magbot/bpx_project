@@ -189,6 +189,30 @@ def test_leaving_motion_state_stops_streaming(node, clock):
     assert "setVelocity" not in node.m.names()
 
 
+# ---------------------------------------------------------------- 충전 중
+def test_stand_rejected_while_charging(node, clock):
+    node.m._current = 2.38                      # 실기 충전 중 값
+    run(node, clock, 0.2)
+    assert node.charging
+    ok, msg = node.request("stand")
+    assert not ok and "충전" in msg and node.mode == "idle"
+    node.m._current = -0.64                     # 충전기 분리
+    run(node, clock, 0.2)
+    assert not node.charging and node.request("stand")[0]
+
+
+def test_charging_hysteresis(node, clock):
+    node.m._current = 0.6
+    run(node, clock, 0.2)
+    assert node.charging
+    node.m._current = 0.3                       # OFF 기준(0.2)보다 크면 유지
+    run(node, clock, 0.2)
+    assert node.charging
+    node.m._current = 0.1
+    run(node, clock, 0.2)
+    assert not node.charging
+
+
 # ---------------------------------------------------------------- 관절 영점
 def test_zero_only_when_lying_idle(node, clock):
     run(node, clock, 0.2)

@@ -60,6 +60,7 @@ class FakeMotion:
         self._connected = False
         self._state = MS_LYING
         self._target = None          # (목표 상태, 완료 시각)
+        self._current = -1.5         # 배터리 전류 (양수 = 충전 중)
         self._vel_flag = False
         self._control_mode = CM_REMOTE
         self._cmd = (0.0, 0.0, 0.0)
@@ -147,6 +148,6 @@ class FakeMotion:
     def getJointVelocity(self): return [0.0] * 12
     def getJointTorque(self): return [0.0] * 12
     def getBatteryLevel(self): return 87
-    def getBatteryCurrent(self): return -1.5
+    def getBatteryCurrent(self): return self._current   # 실기: 방전 음수(-0.64), 충전 양수(+2.38)
     def getRobotModel(self): return 1
     def getRobotSerialNumber(self): return "FAKE00000"

@@ -24,9 +24,9 @@ MirrorMe(mirrormetech.com) **BPX 4족로봇**을 로봇에 올린 **미니PC**(U
   - 상태 50 Hz(odom/관절/IMU), 배터리 1 Hz. 모터 온도 28.0 → ℃
   - BPX IMU 가속도 단위 **m/s²** (|a|=9.78, Livox 의 g 와 다름). 엎드림 roll/pitch ≈ 0 → IMU z 위쪽, base_link 와 수평. IMU yaw = LegOdom yaw
   - 관절(엎드림) pitch +1.08~1.21, knee -2.70~-2.83 rad → URDF/Fake 엎드림 자세와 부호 일치
-  - 배터리 전류 대기 +2.38 (A 라면 약 69 W, 충전 시와 비교해 부호·단위 확정 필요)
+  - 배터리 전류: 충전 중 +2.38 A, 충전기 분리·엎드림 대기 -0.64 A (양수 = 충전)
   - **ControlMode = None** (이 펌웨어는 미제공) → 브리지 탈취 감지는 경고만, 동작 안 함
-- 미확인: IMU x/y 축 방향(전진 시 확인), 서 있을 때 관절 영점, 토크 단위, 배터리 전류 부호, BAT 포트 허용 전류·커넥터 규격
+- 미확인: IMU x/y 축 방향(전진 시 확인), 서 있을 때 관절 영점, 토크 단위, BAT 포트 허용 전류·커넥터 규격
 - 참고 저장소: github.com/mirrormerobotics (bpx_sdk_open, BPX, BPX-Pro, mirrorme_rl_train, robot-mirrorme-bpx, primitive-mirrorme-bpx-quadruped-rbnx, bpx-mindplus-extension)
 
 ## 폴더
@@ -100,3 +100,7 @@ MirrorMe(mirrormetech.com) **BPX 4족로봇**을 로봇에 올린 **미니PC**(U
   - **패킷 캡처로 확인 (18:26)**: 통신 정상. 로봇→PC UDP 9873 상태, PC↔로봇 TCP 10860 세션, PC→로봇 **UDP 9527 명령 50 Hz**.
     일어서기 시 명령 첫 필드 06→01, 요청 카운터가 0.2~0.3 s 마다 증가(18 s 동안 69회) → **요청은 로봇에 도착, 로봇이 무시** (motion_state 0 유지)
     다음 판단: 앱으로는 일어서는지 / Fault Diagnosis / 펌웨어 업데이트. 증거 lidar_ws/bpx_stand.pcap
+  - **원인: 충전기 연결 중** (사용자 확인). 충전 중이면 로봇이 max_vel 을 [0,0,0] 으로 잠그고 서기 요청을 무시한다
+    - 배터리 전류 부호 확정: 충전 +2.38 A / 분리 -0.64 A (A 단위, 양수 = 충전). 배터리 %가 69→93 으로 오른 것도 신호였음
+    - **getChargerIn1/2 는 이 펌웨어에서 충전 중에도 0** → 쓰지 않음. 브리지는 전류 > 0.5 A 면 충전 중으로 판정하고 서기를 즉시 거부
+    - 영점·SDK 1.0.8 교체는 원인이 아니었음 (SDK 는 1.0.9 로 복귀)
