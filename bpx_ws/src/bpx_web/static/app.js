@@ -82,6 +82,7 @@ $('motion').onchange = (e) => {
 // ---------------- 지도 ----------------
 const cv = $('map'), ctx = cv.getContext('2d');
 const view = { scale: 40, cx: 0, cy: 0 };     // px/m, 화면 중심의 월드 좌표
+window.bpxView = view;                         // 화면 시험(헤드리스 캡처)용
 let follow = true, goalMode = false, drag = null, goalDraft = null;
 
 function loadMap(m) {
@@ -134,15 +135,50 @@ function drawMap() {
   // 목표
   const g = goalDraft || (S && S.goal);
   if (g) arrow(g[0], g[1], g[2], '#d97706', 0.5);
-  // 로봇 (BPX 몸체 약 0.7 x 0.4 m)
-  if (p) {
-    const [u, v] = w2s(p[1], p[2]);
-    ctx.save(); ctx.translate(u, v); ctx.rotate(-p[3]);
-    const L = 0.35 * view.scale, W = 0.2 * view.scale;
-    ctx.fillStyle = 'rgba(29,35,48,0.85)'; ctx.fillRect(-L, -W, 2 * L, 2 * W);
-    ctx.fillStyle = '#fbbf24'; ctx.beginPath(); ctx.moveTo(L + 6, 0); ctx.lineTo(L - 8, -W * 0.7); ctx.lineTo(L - 8, W * 0.7); ctx.fill();
-    ctx.restore();
+  if (p) drawDog(p[1], p[2], p[3], S.status || {});
+}
+
+// 4족 로봇 (위에서 본 모습). 치수는 URDF 기준(m): 엉덩이 ±0.24 / ±0.056, 서 있을 때 발끝 좌우 ±0.17
+function drawDog(x, y, yaw, st) {
+  const [u, v] = w2s(x, y);
+  const k = Math.max(view.scale, 46 / 0.72);         // 축소해도 몸길이 최소 46 px
+  const standing = [1, 6].includes(st.motion_state);
+  const ring = !st.connected ? '#9ca3af' : st.charging ? '#d97706' : (st.mode === 'ready' ? '#16a34a' : null);
+  const body = st.connected ? '#2b3240' : '#9ca3af', limb = st.connected ? '#4b5563' : '#b8bec7';
+  const m = (a) => a * k;
+  ctx.save(); ctx.translate(u, v); ctx.rotate(-yaw); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+
+  // 다리: 엉덩이 -> (서기) 바깥으로 벌린 발 / (엎드림) 몸에 붙인 발
+  const hips = [[0.24, 0.07], [0.24, -0.07], [-0.24, 0.07], [-0.24, -0.07]];
+  for (const [hx, hy] of hips) {
+    const s = Math.sign(hy), fx = standing ? hx + 0.02 * Math.sign(hx) : hx - 0.12 * Math.sign(hx);
+    const fy = standing ? 0.17 * s : 0.13 * s, kx = standing ? hx : hx - 0.04 * Math.sign(hx), ky = 0.15 * s;
+    ctx.strokeStyle = limb; ctx.lineWidth = Math.max(3, m(0.045));
+    ctx.beginPath(); ctx.moveTo(m(hx), -m(hy)); ctx.lineTo(m(kx), -m(ky)); ctx.lineTo(m(fx), -m(fy)); ctx.stroke();
+    ctx.fillStyle = '#111827'; ctx.beginPath(); ctx.arc(m(fx), -m(fy), Math.max(2.5, m(0.03)), 0, 7); ctx.fill();
   }
+  // 상태 테두리
+  if (ring) {
+    ctx.strokeStyle = ring; ctx.lineWidth = 3; ctx.globalAlpha = 0.9;
+    roundRect(-m(0.40), -m(0.24), m(0.84), m(0.48), m(0.1)); ctx.stroke(); ctx.globalAlpha = 1;
+  }
+  // 몸통 (torso)
+  ctx.fillStyle = body; roundRect(-m(0.30), -m(0.11), m(0.60), m(0.22), m(0.06)); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.12)'; roundRect(-m(0.24), -m(0.05), m(0.40), m(0.10), m(0.03)); ctx.fill();
+  // 머리 + 눈 (앞쪽 = +x)
+  ctx.fillStyle = body; roundRect(m(0.27), -m(0.085), m(0.13), m(0.17), m(0.05)); ctx.fill();
+  ctx.fillStyle = '#fbbf24';
+  for (const ey of [0.04, -0.04]) { ctx.beginPath(); ctx.arc(m(0.37), -m(ey), Math.max(1.8, m(0.017)), 0, 7); ctx.fill(); }
+  // 진행 방향 표시
+  ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(m(0.44), -m(0.05)); ctx.lineTo(m(0.52), 0); ctx.lineTo(m(0.44), m(0.05)); ctx.stroke();
+  ctx.restore();
+}
+
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
 }
 
 function arrow(x, y, yaw, color, len) {
