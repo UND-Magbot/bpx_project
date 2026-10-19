@@ -20,7 +20,13 @@ MirrorMe(mirrormetech.com) **BPX 4족로봇**을 로봇에 올린 **미니PC**(U
   - 후면 **BAT Power Port = GND / 33V** (배터리 직결 추정 → 24~33.6 V 변동, 허용 전류 미표기). 5V: 전면 USB·LED, S-Bus
   - 미니PC = MSI PRO Cubi Z AI 8M (Ryzen 7 255), 어댑터 120 W, USB-C PD 입력 최대 100 W → BAT 포트에서 받으려면 광입력 DC-DC 필요
 - 리모컨: 펌웨어가 S-Bus(RC 수신기)·USB 게임패드(옵션)·앱을 직접 처리. SDK 에 스틱 입력 API 없음, `getControlMode()` 로 RemoteControl=1 / Navigator=2 확인만 가능. 앱/리모컨과 SDK 우선순위 문서 없음
-- 미확인: 관절 부호·영점, IMU 장착 frame, 배터리 전류/토크 단위, 미니PC IP 할당 방식, BAT 포트 허용 전류·커넥터 규격
+- **실기 확인 (2026-10-19 첫 RJ45 연결, 엎드림 상태·읽기 전용)**: eno1 ↔ 로봇 10.21.20.1 ping 0.2 ms, 미니PC 고정 IP 10.21.20.10 동작
+  - 상태 50 Hz(odom/관절/IMU), 배터리 1 Hz. 모터 온도 28.0 → ℃
+  - BPX IMU 가속도 단위 **m/s²** (|a|=9.78, Livox 의 g 와 다름). 엎드림 roll/pitch ≈ 0 → IMU z 위쪽, base_link 와 수평. IMU yaw = LegOdom yaw
+  - 관절(엎드림) pitch +1.08~1.21, knee -2.70~-2.83 rad → URDF/Fake 엎드림 자세와 부호 일치
+  - 배터리 전류 대기 +2.38 (A 라면 약 69 W, 충전 시와 비교해 부호·단위 확정 필요)
+  - **ControlMode = None** (이 펌웨어는 미제공) → 브리지 탈취 감지는 경고만, 동작 안 함
+- 미확인: IMU x/y 축 방향(전진 시 확인), 서 있을 때 관절 영점, 토크 단위, 배터리 전류 부호, BAT 포트 허용 전류·커넥터 규격
 - 참고 저장소: github.com/mirrormerobotics (bpx_sdk_open, BPX, BPX-Pro, mirrorme_rl_train, robot-mirrorme-bpx, primitive-mirrorme-bpx-quadruped-rbnx, bpx-mindplus-extension)
 
 ## 폴더
