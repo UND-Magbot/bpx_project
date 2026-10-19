@@ -220,6 +220,13 @@ class BpxBridge(Node):
 
         if not self.connected:
             self.get_logger().info("로봇 연결됨")
+            try:
+                ver = getattr(self.m, "getRobotVersion", lambda: None)()
+                self.get_logger().info(
+                    f"로봇 정보: SN={self.m.getRobotSerialNumber()} model={self.m.getRobotModel()} "
+                    f"firmware={ver} sdk={getattr(self.m, '__version__', '?')}")
+            except Exception as e:
+                self.get_logger().warn(f"로봇 정보 조회 실패: {e}")
             self.ever_connected = True
             self.connected = True
             if self.mode in ("ready", "standing"):
@@ -371,6 +378,14 @@ class BpxBridge(Node):
               "motion_state": self.motion_state, "control_mode": self.control_mode,
               "allow_motion": self.allow_motion}
         if self.connected:
+            try:
+                # 충전기가 꽂혀 있으면 동작을 거부할 수 있음 -> 진단용으로 표시
+                st["charger"] = [getattr(self.m, "getChargerIn1", lambda: None)(),
+                                 getattr(self.m, "getChargerIn2", lambda: None)()]
+                st["max_vel"] = getattr(self.m, "getMaxVelocity", lambda: None)()
+                st["sub_gait"] = getattr(self.m, "getSubGait", lambda: None)()
+            except Exception:
+                pass
             try:
                 st["gait"] = self.m.getCurrentGait()
                 temps = self.m.getMotorTemperature()

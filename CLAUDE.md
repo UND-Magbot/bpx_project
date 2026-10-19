@@ -93,3 +93,7 @@ MirrorMe(mirrormetech.com) **BPX 4족로봇**을 로봇에 올린 **미니PC**(U
 - 다음 단계: Mid-360S 드라이버(Livox-SDK2 + livox_ros_driver2) → FAST-LIO 매핑 / NDT 위치추정 → Nav2 장애물 레이어
 - 2026-10-19: 첫 실기 연결(읽기 전용 실측), 관리자 웹. 웹 일어서기 시도 → 15 s 동안 motion_state 가 6 이 안 돼 타임아웃.
   제조사 예제/Mind+ 는 서기 전에 관절 영점(setZeroPositionsFlag)을 먼저 함 → 웹에 관절 영점 버튼 추가, 브리지가 motion_state 변화를 로그로 남김
+  영점 후에도 motion_state 가 0 에서 전혀 안 바뀜 (StandingUp 1 도 안 거침) → 로봇이 동작 명령 자체를 받지 않음
+  - 로봇 펌웨어 **1.0.14 (2026-08-18)**, SN/model/ControlMode = None (SDK 1.0.9 신기능 미지원), 충전기 [0,0]
+  - 제조사 실기 서기 검증(robot-mirrorme-bpx POSTURE_VALIDATION)은 펌웨어 **1.0.15** + SDK 1.0.8, 영점 호출 없이 성공
+  - 후보: ① 펌웨어 업데이트(앱 OTA) ② 앱/리모컨이 조종 중 (검증 절차 전제: 리모컨·앱·다른 SDK 모두 정지)
