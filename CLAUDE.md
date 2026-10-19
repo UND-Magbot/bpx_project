@@ -97,3 +97,6 @@ MirrorMe(mirrormetech.com) **BPX 4족로봇**을 로봇에 올린 **미니PC**(U
   - 로봇 펌웨어 **1.0.14 (2026-08-18)**, SN/model/ControlMode = None (SDK 1.0.9 신기능 미지원), 충전기 [0,0]
   - 제조사 실기 서기 검증(robot-mirrorme-bpx POSTURE_VALIDATION)은 펌웨어 **1.0.15** + SDK 1.0.8, 영점 호출 없이 성공
   - 후보: ① 펌웨어 업데이트(앱 OTA) ② 앱/리모컨이 조종 중 (검증 절차 전제: 리모컨·앱·다른 SDK 모두 정지)
+  - **패킷 캡처로 확인 (18:26)**: 통신 정상. 로봇→PC UDP 9873 상태, PC↔로봇 TCP 10860 세션, PC→로봇 **UDP 9527 명령 50 Hz**.
+    일어서기 시 명령 첫 필드 06→01, 요청 카운터가 0.2~0.3 s 마다 증가(18 s 동안 69회) → **요청은 로봇에 도착, 로봇이 무시** (motion_state 0 유지)
+    다음 판단: 앱으로는 일어서는지 / Fault Diagnosis / 펌웨어 업데이트. 증거 lidar_ws/bpx_stand.pcap
