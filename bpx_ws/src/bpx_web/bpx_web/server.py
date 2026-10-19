@@ -85,7 +85,7 @@ class WebNode(Node):
                              reliability=ReliabilityPolicy.RELIABLE)
         self.create_subscription(OccupancyGrid, '/map', self.map_cb, latched)
         self.cmd_pub = self.create_publisher(Twist, p('cmd_topic', '/cmd_vel').value, 10)
-        self.trig = {n: self.create_client(Trigger, f'{bridge}/{n}') for n in ('stand', 'sit', 'damping')}
+        self.trig = {n: self.create_client(Trigger, f'{bridge}/{n}') for n in ('stand', 'sit', 'damping', 'zero')}
         self.motion_cli = self.create_client(SetBool, f'{bridge}/set_motion')
         self.nav = ActionClient(self, NavigateToPose, 'navigate_to_pose')
         self.tf = Buffer()
@@ -173,7 +173,7 @@ class WebNode(Node):
 
     async def action(self, name):
         return await self.call(self.trig[name], Trigger.Request(),
-                               {'stand': '일어서기', 'sit': '앉기', 'damping': '힘 풀기'}[name])
+                               {'stand': '일어서기', 'sit': '앉기', 'damping': '힘 풀기', 'zero': '관절 영점'}[name])
 
     async def set_motion(self, enable):
         self.set_teleop(0, 0, 0)
@@ -305,7 +305,7 @@ def make_app(node: WebNode) -> FastAPI:
                 kind = msg.get('type')
                 if kind == 'teleop':
                     node.set_teleop(msg.get('vx', 0), msg.get('vy', 0), msg.get('wz', 0))
-                elif kind == 'action' and msg.get('name') in ('stand', 'sit', 'damping'):
+                elif kind == 'action' and msg.get('name') in ('stand', 'sit', 'damping', 'zero'):
                     await node.action(msg['name'])
                 elif kind == 'motion':
                     await node.set_motion(msg.get('enable', False))

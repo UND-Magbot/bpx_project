@@ -46,6 +46,7 @@ function render() {
   canControl = !!(conn && st.allow_motion);
   if (could !== canControl) { if (!canControl && joyTimer) stopJoy(); drawJoy(); }
   for (const id of ['b-stand', 'b-sit', 'b-damp', 'estop']) $(id).disabled = !canControl;
+  $('b-zero').disabled = !(canControl && st.motion_state === 0 && st.mode === 'idle');
   $('motion').disabled = !conn;
   $('motion-hint').textContent = !conn ? '로봇이 연결되어야 조종할 수 있습니다.'
     : st.allow_motion ? '조종 모드 켜짐: 버튼과 조이스틱이 로봇에 전달됩니다.' : '조종 모드를 켜야 동작 버튼과 조종이 전달됩니다.';
@@ -63,6 +64,12 @@ function render() {
 // ---------------- 동작 버튼 ----------------
 document.querySelectorAll('[data-act]').forEach((b) => b.onclick = () => send({ type: 'action', name: b.dataset.act }));
 $('estop').onclick = () => { stopJoy(); send({ type: 'action', name: 'damping' }); };
+$('b-zero').onclick = () => {
+  const ok = confirm('관절 영점을 설정합니다 (앱의 Reset Joints 와 같음).\n\n' +
+    '네 다리의 발 · 정강이 · 무릎이 모두 바닥에 닿은 표준 엎드림 자세인지 확인하세요.\n' +
+    '자세가 틀리면 이후 동작이 비정상이 될 수 있습니다.\n\n계속할까요?');
+  if (ok) send({ type: 'action', name: 'zero' });
+};
 $('motion').onchange = (e) => {
   motionPending = Date.now() + 2000;
   if (!e.target.checked) stopJoy();

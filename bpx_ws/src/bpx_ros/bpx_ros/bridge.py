@@ -5,7 +5,7 @@
   LegOdom                     -> /odom/mc_odom (Odometry) + TF odom->base_link
   관절 / IMU / 배터리          -> /joint_states, /imu/data, /battery_state
   상태                         -> /bpx/status (String JSON)
-  서비스 ~/stand ~/sit ~/damping (std_srvs/Trigger)
+  서비스 ~/stand ~/sit ~/damping ~/zero(관절 영점, 엎드림에서만) (std_srvs/Trigger)
   서비스 ~/set_motion (std_srvs/SetBool)  실행 중 조종 모드 전환. 끄면 즉시 속도 0 + 플래그 해제 (관리자 웹이 사용)
   토픽 /bpx/motion (String: stand|sit|damping)  <- 관제 브리지 연동 훅 (Zishen /zishen/motion 과 같은 역할)
 
@@ -33,6 +33,7 @@ from bpx_ros.backend import (CM_NAVIGATOR, CM_REMOTE, JOINT_NAMES, MS_LYING, MS_
 STAND_TIMEOUT_S = 15.0   # Mind+ 확장과 같은 값
 SIT_TIMEOUT_S = 15.0
 RESEND_S = 0.2           # 서기/앉기 요청 재전송 간격 (Mind+ INTERVAL)
+ZERO_SETTLE_S = 1.0      # 영점 설정 후 서기까지 대기 (SDK 예제·Mind+ reset_joints 와 같음)
 
 
 def clamp(v, lim):
@@ -84,6 +85,7 @@ class BpxBridge(Node):
         self.last_connect_try = 0.0
         self.ever_connected = False      # 한 번 붙은 뒤에는 SDK 자동 재연결에 맡김
         self.motion_state = None
+        self.zero_until = 0.0
         self.control_mode = None
         self.nav_seen = False            # ready 진입 후 Navigator(SDK 조종)를 확인했는지
         self.nav_warned = False
@@ -104,6 +106,7 @@ class BpxBridge(Node):
         self.create_service(Trigger, "~/stand", lambda rq, rs: self.srv(rs, "stand"))
         self.create_service(Trigger, "~/sit", lambda rq, rs: self.srv(rs, "sit"))
         self.create_service(Trigger, "~/damping", lambda rq, rs: self.srv(rs, "damping"))
+        self.create_service(Trigger, "~/zero", lambda rq, rs: self.srv(rs, "zero"))   # 관절 영점
         self.create_service(SetBool, "~/set_motion", self.set_motion_cb)
 
         # 타이머 (단일 스레드 executor -> SDK 호출이 겹치지 않음)
@@ -125,7 +128,11 @@ class BpxBridge(Node):
         self.last_cmd = time.monotonic()
 
     def motion_cb(self, msg):
-        ok, text = self.request((msg.data or "").strip().lower())
+        what = (msg.data or "").strip().lower()
+        if what == "zero":   # 영점은 자세 확인이 필요해서 관제 토픽으로는 받지 않고 ~/zero 서비스로만
+            self.get_logger().warn("/bpx/motion: zero 는 ~/zero 서비스로만 허용")
+            return
+        ok, text = self.request(what)
         (self.get_logger().info if ok else self.get_logger().warn)(f"/bpx/motion: {text}")
 
     def set_motion_cb(self, req, res):
@@ -150,12 +157,20 @@ class BpxBridge(Node):
         return res
 
     def request(self, what):
-        if what not in ("stand", "sit", "damping"):
-            return False, f"알 수 없는 명령 '{what}' (stand|sit|damping)"
+        if what not in ("stand", "sit", "damping", "zero"):
+            return False, f"알 수 없는 명령 '{what}' (stand|sit|damping|zero)"
         if not self.allow_motion:
             return False, "allow_motion=false (읽기 전용) -> 명령 거부"
         if not self.connected:
             return False, "로봇 미연결"
+        if what == "zero":
+            # 관절 영점 (앱 Reset Joints 와 같음). 네 다리 발·정강이·무릎이 바닥에 닿은 엎드림에서만
+            if self.motion_state != MS_LYING or self.mode != "idle":
+                return False, f"엎드림·대기 상태에서만 가능 (motion_state={self.motion_state}, mode={self.mode})"
+            self.m.setZeroPositionsFlag()
+            self.zero_until = time.monotonic() + ZERO_SETTLE_S
+            self.get_logger().warn("관절 영점 설정 전송")
+            return True, "관절 영점 설정 전송 (1초 후 일어서기 가능)"
         if what == "stand":
             self.set_mode("standing")
         elif what == "sit":
@@ -212,11 +227,14 @@ class BpxBridge(Node):
             elif self.auto_stand and self.allow_motion and self.mode == "idle":
                 self.set_mode("standing")
 
+        prev_ms = self.motion_state
         try:
             self.motion_state = self.m.getCurrentMotionState()
         except Exception:
             self.motion_state = None
         ms = self.motion_state
+        if ms != prev_ms:   # 서기 실패 원인 추적용
+            self.get_logger().info(f"motion_state {prev_ms} -> {ms} (mode={self.mode})")
         try:
             self.control_mode = self.m.getControlMode()
         except Exception:
@@ -234,7 +252,7 @@ class BpxBridge(Node):
                 self.get_logger().error("서기 타임아웃(15s) -> idle")
                 self.zero_and_flag_off()
                 self.set_mode("idle")
-            elif now - self.last_req >= RESEND_S:
+            elif now - self.last_req >= RESEND_S and now >= self.zero_until:
                 self.m.setStandUp()
                 self.last_req = now
         elif self.mode == "sitting":

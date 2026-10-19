@@ -9,6 +9,7 @@ import math
 
 import pytest
 import rclpy
+from std_msgs.msg import String
 
 from bpx_ros import backend as backend_mod
 from bpx_ros import bridge as bridge_mod
@@ -186,6 +187,42 @@ def test_leaving_motion_state_stops_streaming(node, clock):
     node.cmd_cb(_twist(0.3))
     node.stream()
     assert "setVelocity" not in node.m.names()
+
+
+# ---------------------------------------------------------------- 관절 영점
+def test_zero_only_when_lying_idle(node, clock):
+    run(node, clock, 0.2)
+    ok, _ = node.request("zero")
+    assert ok and node.m.last("setZeroPositionsFlag") == ("setZeroPositionsFlag",)
+    run(node, clock, 1.1)                       # 영점 후 대기
+    make_ready(node, clock)                     # 서 있을 때는 거부
+    ok, msg = node.request("zero")
+    assert not ok and "엎드림" in msg
+    assert "setZeroPositionsFlag" not in node.m.names()
+
+
+def test_zero_rejected_read_only(node, clock):
+    node.allow_motion = False
+    run(node, clock, 0.2)
+    assert not node.request("zero")[0]
+    assert "setZeroPositionsFlag" not in node.m.names()
+
+
+def test_stand_waits_after_zero(node, clock):
+    run(node, clock, 0.2)
+    node.request("zero")
+    node.m.calls.clear()
+    node.request("stand")
+    run(node, clock, 0.8)                       # 1초 대기 중
+    assert "setStandUp" not in node.m.names()
+    run(node, clock, 0.4)
+    assert "setStandUp" in node.m.names()
+
+
+def test_zero_not_via_motion_topic(node, clock):
+    run(node, clock, 0.2)
+    node.motion_cb(String(data="zero"))
+    assert "setZeroPositionsFlag" not in node.m.names()
 
 
 # ---------------------------------------------------------------- 실행 중 조종 모드 전환 (관리자 웹)
