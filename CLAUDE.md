@@ -39,6 +39,12 @@ MirrorMe(mirrormetech.com) **BPX 4족로봇**을 로봇에 올린 **미니PC**(U
   - `launch/nav.launch.py` 표준 Nav2 (MPPI Omni, NavFn, 빈 지도 `maps/empty.yaml`, map→odom 고정). `config/nav2.yaml`
     - 라이다 전이라 장애물 레이어 없음 → **실기 자율주행 금지**, fake 시험 전용. velocity_smoother 출력 = /cmd_vel
   - `config/bridge.yaml`, `urdf/bpx.urdf`(base_link 루트 추가), `meshes/`
+- `bpx_ws/src/bpx_web/` **로봇 관리자 웹** (FastAPI + rclpy 한 프로세스, http://<미니PC>:8080, 인증 없음 = 사내 시험망 전용)
+  - 상태 대시보드, 조종 모드 스위치(브리지 `~/set_motion`), 일어서기/앉기/힘 풀기, 비상 정지(damping), 가상 조이스틱·WASDQE, 지도·궤적·Nav2 목표
+  - 조이스틱은 누르는 동안만 /cmd_vel 송신, 놓으면 0 한 번 (Nav2 명령을 덮지 않음). 0.3 s 끊기거나 화면이 닫히면 서버가 0. 속도 상한 서버에서도 적용
+  - 조종 모드를 끄면 브리지가 속도 0 + 플래그 해제 (서 있던 로봇은 펌웨어가 세워 둠 → 끄기 전에 앉힐 것)
+  - uvicorn 은 `ws='wsproto'` 필수 (Ubuntu 22.04 websockets 9.1 이 Python 3.10 과 호환 안 됨)
+  - 자동 실행 서비스가 `web:=true` 로 띄움. fake 시험: lidar_ws/webtest/scenario.py (10항목)
 - `scripts/bpx_cmd.py` ROS 없이 단발 동작 (check/watch/stand/sit/damping/zero, --fake)
 - `setup/` setup_minipc.sh, bpx_env.sh(ROS_DOMAIN_ID=90), net_bpx.sh(nmcli 고정 IP: eno1=로봇, enp4s0=라이다), netplan-bpx.yaml(참고용)
 - `third_party/bpx_sdk/` SDK wheel (cp310 x86_64 / aarch64)

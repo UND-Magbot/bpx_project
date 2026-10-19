@@ -9,7 +9,7 @@ Wants=network-online.target
 
 [Service]
 User=undsw
-ExecStart=/bin/bash -c 'source /home/undsw/bpx/setup/bpx_env.sh && exec ros2 launch bpx_ros bringup.launch.py allow_motion:=false foxglove:=true'
+ExecStart=/bin/bash -c 'source /home/undsw/bpx/setup/bpx_env.sh && exec ros2 launch bpx_ros bringup.launch.py allow_motion:=false foxglove:=true web:=true'
 # ros2 launch 는 SIGINT 로 자식 노드를 정상 종료시킨다. 남은 프로세스는 타임아웃 후 강제 종료
 KillSignal=SIGINT
 KillMode=mixed

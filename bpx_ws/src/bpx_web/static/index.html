@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BPX 관리자</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>BPX 관리자</h1>
+  <span id="link" class="pill bad">서버 연결 중…</span>
+  <span id="robot" class="pill">로봇 -</span>
+  <label class="switch" title="켜면 동작 버튼과 조종이 로봇에 전달됩니다">
+    <input type="checkbox" id="motion"><span class="slider"></span><span class="lbl">조종 모드</span>
+  </label>
+</header>
+
+<main>
+  <section class="panel" id="left">
+    <h2>상태</h2>
+    <dl class="stats">
+      <dt>동작 상태</dt><dd id="s-motion">-</dd>
+      <dt>브리지 모드</dt><dd id="s-mode">-</dd>
+      <dt>배터리</dt><dd id="s-batt">-</dd>
+      <dt>모터 최고 온도</dt><dd id="s-temp">-</dd>
+      <dt>현재 속도</dt><dd id="s-vel">-</dd>
+      <dt>위치</dt><dd id="s-pose">-</dd>
+      <dt>조종 주체</dt><dd id="s-cm">-</dd>
+    </dl>
+
+    <h2>동작</h2>
+    <div class="btns">
+      <button id="b-stand" data-act="stand">일어서기</button>
+      <button id="b-sit" data-act="sit">앉기</button>
+      <button id="b-damp" data-act="damping" class="warn">힘 풀기</button>
+    </div>
+    <button id="estop" title="소프트웨어 힘 풀기(damping). 하드웨어 E-Stop 은 로봇 후면">비상 정지</button>
+    <p class="hint" id="motion-hint">조종 모드를 켜야 동작 버튼과 조종이 전달됩니다.</p>
+
+    <h2>기록</h2>
+    <ul id="events"></ul>
+  </section>
+
+  <section class="panel" id="center">
+    <div class="maphead">
+      <h2>지도 · 위치 <span id="frame" class="muted"></span></h2>
+      <div>
+        <button id="b-goal" class="small" title="지도에서 누르고 끌어 방향 지정">목표 지정</button>
+        <button id="b-cancel" class="small">목표 취소</button>
+        <button id="b-follow" class="small on">로봇 따라가기</button>
+        <span id="goal-state" class="muted"></span>
+      </div>
+    </div>
+    <canvas id="map"></canvas>
+    <p class="hint">휠: 확대/축소 · 끌기: 이동 · 지도가 없으면 odom 궤적만 보입니다</p>
+  </section>
+
+  <section class="panel" id="right">
+    <h2>원격 조종</h2>
+    <canvas id="joy" width="240" height="240"></canvas>
+    <label class="row"><input type="checkbox" id="strafe"> 좌우 = 옆걸음 (끄면 회전)</label>
+    <label class="row">속도 <input type="range" id="speed" min="10" max="100" value="50"> <span id="speed-v">50%</span></label>
+    <p class="hint">키보드: W/S 전후 · A/D 회전 · Q/E 옆걸음 · 손을 떼면 즉시 정지</p>
+    <div id="joy-out" class="muted">정지</div>
+  </section>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>

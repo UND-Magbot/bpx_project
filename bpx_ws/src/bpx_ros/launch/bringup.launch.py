@@ -4,6 +4,7 @@
   ros2 launch bpx_ros bringup.launch.py allow_motion:=true       # 실기, 서기/주행 허용
   ros2 launch bpx_ros bringup.launch.py backend:=fake allow_motion:=true rviz:=true   # 로봇 없이
   foxglove:=true -> 원격 PC 에서 Foxglove 로 ws://<미니PC>:8765 접속 (보기 전용: 발행/서비스 호출 불가)
+  web:=true      -> 관리자 웹 http://<미니PC>:8080 (조종 모드 전환·동작 버튼·조이스틱, 인증 없음)
 """
 import os
 
@@ -34,6 +35,8 @@ def generate_launch_description():
         DeclareLaunchArgument('rviz', default_value='false'),
         DeclareLaunchArgument('foxglove', default_value='false'),
         DeclareLaunchArgument('foxglove_port', default_value='8765'),
+        DeclareLaunchArgument('web', default_value='false'),
+        DeclareLaunchArgument('web_port', default_value='8080'),
 
         Node(
             package='bpx_ros', executable='bpx_bridge', name='bpx_bridge', output='screen',
@@ -65,5 +68,11 @@ def generate_launch_description():
                 'capabilities': ['connectionGraph', 'assets'],
             }],
             condition=IfCondition(LaunchConfiguration('foxglove')),
+        ),
+        Node(
+            package='bpx_web', executable='bpx_web', name='bpx_web', output='screen',
+            parameters=[{'port': ParameterValue(LaunchConfiguration('web_port'), value_type=int),
+                         'cmd_topic': cmd_topic}],
+            condition=IfCondition(LaunchConfiguration('web')),
         ),
     ])

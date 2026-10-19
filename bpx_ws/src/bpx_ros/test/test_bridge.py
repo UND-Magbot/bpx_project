@@ -188,6 +188,41 @@ def test_leaving_motion_state_stops_streaming(node, clock):
     assert "setVelocity" not in node.m.names()
 
 
+# ---------------------------------------------------------------- 실행 중 조종 모드 전환 (관리자 웹)
+def test_enable_motion_at_runtime(node, clock):
+    node.allow_motion = False
+    run(node, clock, 0.2)
+    assert not node.request("stand")[0]
+    node.set_motion(True)
+    assert node.request("stand")[0]
+    run(node, clock, 2.5)
+    assert node.mode == "ready"
+
+
+def test_disable_motion_while_walking_stops(node, clock):
+    make_ready(node, clock)
+    node.cmd_cb(_twist(0.3))
+    node.stream()
+    node.m.calls.clear()
+    node.set_motion(False)
+    assert node.mode == "idle" and not node.allow_motion
+    assert node.m.calls[:2] == [("setVelocity", 0.0, 0.0, 0.0), ("setVelocityControlFlag", False)]
+    node.m.calls.clear()
+    node.cmd_cb(_twist(0.3))
+    for _ in range(5):
+        node.stream()
+    run(node, clock, 1.0)
+    assert node.m.calls == []                   # 끈 뒤로는 아무 명령도 안 나감
+    assert not node.request("sit")[0]
+
+
+def test_disable_motion_when_idle_sends_nothing(node, clock):
+    run(node, clock, 0.5)
+    node.m.calls.clear()
+    node.set_motion(False)
+    assert node.m.calls == []
+
+
 # ---------------------------------------------------------------- 조종권 (ControlMode)
 def test_remote_takeover_stops_streaming(node, clock):
     make_ready(node, clock)

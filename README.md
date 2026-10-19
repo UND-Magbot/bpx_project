@@ -52,6 +52,17 @@ ping 10.21.20.1
    `ros2 run teleop_twist_keyboard teleop_twist_keyboard` (저속부터)
 5. 비상: `ros2 service call /bpx_bridge/damping std_srvs/srv/Trigger` 또는 브리지 Ctrl+C(정지 후 앉기). **하드웨어 E-stop 은 후면 E-Stop 포트**
 
+## 로봇 관리자 웹
+
+브라우저로 `http://192.168.30.52:8080` (미니PC WiFi 주소). 부팅 시 자동 실행된다.
+
+- 상태: 연결, 동작 상태, 배터리, 모터 온도, 속도, 위치, 기록
+- **조종 모드** 스위치를 켜야 버튼·조이스틱이 로봇에 전달된다 (부팅 직후는 항상 꺼짐 = 읽기 전용)
+- 일어서기 / 앉기 / 힘 풀기 / 비상 정지(소프트웨어 damping, 하드웨어 E-Stop 은 로봇 후면)
+- 원격 조종: 화면 조이스틱 또는 키보드 W/S(전후) A/D(회전) Q/E(옆걸음), 손을 떼면 정지
+- 지도·위치: 지도와 위치추정이 있으면 지도 위 로봇, "목표 지정"으로 Nav2 주행
+- ⚠️ 인증이 없다. 같은 망의 누구나 조종할 수 있으므로 사내 시험망에서만 쓴다
+
 ## 원격 PC 에서 보기 (Foxglove, 보기 전용)
 
 미니PC 는 부팅 시 `bpx-bridge.service` 가 `foxglove:=true` 로 실행 → `ws://<미니PC>:8765` 열림.

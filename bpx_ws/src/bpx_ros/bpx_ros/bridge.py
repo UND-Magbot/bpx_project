@@ -6,6 +6,7 @@
   관절 / IMU / 배터리          -> /joint_states, /imu/data, /battery_state
   상태                         -> /bpx/status (String JSON)
   서비스 ~/stand ~/sit ~/damping (std_srvs/Trigger)
+  서비스 ~/set_motion (std_srvs/SetBool)  실행 중 조종 모드 전환. 끄면 즉시 속도 0 + 플래그 해제 (관리자 웹이 사용)
   토픽 /bpx/motion (String: stand|sit|damping)  <- 관제 브리지 연동 훅 (Zishen /zishen/motion 과 같은 역할)
 
 SDK 소유는 이 노드 하나로 유지한다. 앱/Mind+ 와 동시 조종 금지.
@@ -23,7 +24,7 @@ from geometry_msgs.msg import Twist, TransformStamped
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import BatteryState, Imu, JointState
 from std_msgs.msg import String
-from std_srvs.srv import Trigger
+from std_srvs.srv import SetBool, Trigger
 from tf2_ros import TransformBroadcaster
 
 from bpx_ros.backend import (CM_NAVIGATOR, CM_REMOTE, JOINT_NAMES, MS_LYING, MS_MOTION,
@@ -103,12 +104,14 @@ class BpxBridge(Node):
         self.create_service(Trigger, "~/stand", lambda rq, rs: self.srv(rs, "stand"))
         self.create_service(Trigger, "~/sit", lambda rq, rs: self.srv(rs, "sit"))
         self.create_service(Trigger, "~/damping", lambda rq, rs: self.srv(rs, "damping"))
+        self.create_service(SetBool, "~/set_motion", self.set_motion_cb)
 
         # 타이머 (단일 스레드 executor -> SDK 호출이 겹치지 않음)
         self.create_timer(1.0 / cmd_rate, self.stream)
         self.create_timer(1.0 / publish_rate, self.publish_state)
         self.create_timer(0.1, self.supervise)
-        self.create_timer(1.0, self.publish_slow)
+        self.status_tick = 0
+        self.create_timer(0.2, self.publish_slow)    # /bpx/status 5 Hz (관리자 웹 반응), /battery_state 는 1 Hz
         self.get_logger().info(f"구독: {cmd_topic}  발행: {odom_topic}, /joint_states, /imu/data")
 
     # ---------------- 명령 입력 ----------------
@@ -124,6 +127,23 @@ class BpxBridge(Node):
     def motion_cb(self, msg):
         ok, text = self.request((msg.data or "").strip().lower())
         (self.get_logger().info if ok else self.get_logger().warn)(f"/bpx/motion: {text}")
+
+    def set_motion_cb(self, req, res):
+        self.set_motion(bool(req.data))
+        res.success, res.message = True, f"allow_motion={self.allow_motion}"
+        return res
+
+    def set_motion(self, enable):
+        if enable == self.allow_motion:
+            return
+        if not enable:
+            # 조종 모드 해제: 진행 중인 서기/주행/앉기 요청을 멈추고 속도 0. 서 있던 로봇은 펌웨어가 계속 세워 둔다
+            if self.connected and self.mode != "idle":
+                self.zero_and_flag_off()
+            self.vx = self.vy = self.wz = 0.0
+            self.set_mode("idle")
+        self.allow_motion = enable
+        self.get_logger().warn(f"조종 모드 {'켜짐 (명령 허용)' if enable else '꺼짐 (읽기 전용)'}")
 
     def srv(self, res, what):
         res.success, res.message = self.request(what)
@@ -327,6 +347,8 @@ class BpxBridge(Node):
             self.imu_pub.publish(imu)
 
     def publish_slow(self):
+        self.status_tick += 1
+        publish_battery = self.status_tick % 5 == 1
         st = {"backend": self.backend_kind, "connected": self.connected, "mode": self.mode,
               "motion_state": self.motion_state, "control_mode": self.control_mode,
               "allow_motion": self.allow_motion}
@@ -348,7 +370,8 @@ class BpxBridge(Node):
                     cur = self.m.getBatteryCurrent()
                     if cur is not None and math.isfinite(float(cur)):
                         b.current = float(cur)        # 단위/부호 실기 확인 필요
-                    self.batt_pub.publish(b)
+                    if publish_battery:
+                        self.batt_pub.publish(b)
                     st["battery"] = int(lvl)
             except Exception:
                 pass
