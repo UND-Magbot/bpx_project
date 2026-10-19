@@ -328,7 +328,8 @@ def main():
     node = WebNode()
     ex = MultiThreadedExecutor(num_threads=2)
     ex.add_node(node)
-    threading.Thread(target=ex.spin, daemon=True).start()
+    spin_thread = threading.Thread(target=ex.spin, daemon=True)
+    spin_thread.start()
     node.get_logger().info(f"관리자 웹: http://0.0.0.0:{node.port}")
     try:
         # Ubuntu 22.04 의 websockets 9.1 은 Python 3.10 과 호환 안 됨 -> wsproto 사용
@@ -337,6 +338,7 @@ def main():
         node.set_teleop(0, 0, 0)
         node.teleop_tick()
         ex.shutdown()
+        spin_thread.join(timeout=2.0)   # spin 스레드가 살아 있는 채 종료하면 C++ terminate(-6)
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()

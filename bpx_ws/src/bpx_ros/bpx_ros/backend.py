@@ -40,6 +40,8 @@ def make_backend(kind, robot_ip, state_port, state_rate, cmd_rate):
     m.setRobotStateUploadPort(state_port)
     m.setRobotStateUploadRate(state_rate)
     m.setMotionCommandRate(cmd_rate)
+    # connect 가 주기 명령 송신을 시작하기 전에 '속도 제어 아님'을 명시 (제조사 Robonix posture 세션과 같음)
+    m.setVelocityControlFlag(False)
     return m
 
 
