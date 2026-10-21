@@ -1,10 +1,11 @@
-"""FAST-LIO 매핑 (Mid-360S). lidar.launch.py 와 함께 실행.
+"""FAST-LIO 매핑 (Mid-360S). lidar.launch.py 와 함께 실행 (또는 mapping_session.launch.py 가 함께 띄움).
 
   ros2 launch bpx_ros mapping.launch.py map_name:=office
-  ros2 service call /map_save std_srvs/srv/Trigger        # -> ~/bpx/maps/office.pcd
-  python3 ~/bpx/scripts/align_map_gravity.py ~/bpx/maps/office.pcd   # -> office_level.pcd (위치추정용)
+  ros2 service call /map_save std_srvs/srv/Trigger        # -> ~/bpx/maps/office/map.pcd
+  python3 ~/bpx/scripts/align_map_gravity.py ~/bpx/maps/office/map.pcd   # -> map_level.pcd (위치추정용)
 
-로봇을 멈춘 상태로 시작할 것: 처음 1초 IMU 로 중력 방향을 재서 office.gravity.json 에 저장한다
+지도 하나 = 폴더 하나 (~/bpx/maps/<map_name>/). 관리자 웹 지도 탭이 이 구조를 읽는다.
+로봇을 멈춘 상태로 시작할 것: 처음 1초 IMU 로 중력 방향을 재서 gravity.json 에 저장한다
 (FAST-LIO 지도는 출발 자세 기준이라 기울어 있음).
 FAST-LIO 자체 TF(camera_init -> body)로만 돈다. 로봇 TF 와는 위치추정 단계에서 연결.
 """
@@ -17,23 +18,24 @@ from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
-MAP_DIR = os.path.expanduser('~/bpx/maps')
+MAP_ROOT = os.path.expanduser('~/bpx/maps')
 
 
 def _fastlio(context):
     name = LaunchConfiguration('map_name').perform(context)
-    os.makedirs(MAP_DIR, exist_ok=True)
+    out = os.path.join(MAP_ROOT, name)
+    os.makedirs(out, exist_ok=True)
     share = get_package_share_directory('bpx_ros')
     sim = LaunchConfiguration('use_sim_time').perform(context) == 'true'
     return [
         Node(
             package='fast_lio', executable='fastlio_mapping', name='laser_mapping', output='screen',
             parameters=[os.path.join(share, 'config', 'fastlio_mid360s.yaml'),
-                        {'map_file_path': os.path.join(MAP_DIR, name + '.pcd'), 'use_sim_time': sim}],
+                        {'map_file_path': os.path.join(out, 'map.pcd'), 'use_sim_time': sim}],
         ),
         Node(
             package='bpx_ros', executable='gravity_logger', name='gravity_logger', output='screen',
-            parameters=[{'output': os.path.join(MAP_DIR, name + '.gravity.json'), 'use_sim_time': sim}],
+            parameters=[{'output': os.path.join(out, 'gravity.json'), 'use_sim_time': sim}],
         ),
     ]
 

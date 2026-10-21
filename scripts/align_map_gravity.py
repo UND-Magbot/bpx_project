@@ -54,9 +54,12 @@ def main():
     if a.gravity:
         g = a.gravity
     else:
-        js = os.path.splitext(a.pcd)[0] + '.gravity.json'
-        if not os.path.exists(js):
-            sys.exit(f"{js} 없음 -> --gravity 로 지정 (매핑 시작 1초 IMU 평균)")
+        # 지도 폴더 구조(<dir>/map.pcd + <dir>/gravity.json) 와 예전 평면 구조(<name>.gravity.json) 둘 다
+        cands = [os.path.join(os.path.dirname(os.path.abspath(a.pcd)), 'gravity.json'),
+                 os.path.splitext(a.pcd)[0] + '.gravity.json']
+        js = next((c for c in cands if os.path.exists(c)), None)
+        if not js:
+            sys.exit(f"{cands[0]} 없음 -> --gravity 로 지정 (매핑 시작 1초 IMU 평균)")
         g = json.load(open(js))['gravity_imu']
     R = rot_to_z(g)
     tilt = np.degrees(np.arccos(np.clip(np.asarray(g)[2] / np.linalg.norm(g), -1, 1)))

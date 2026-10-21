@@ -7,14 +7,15 @@ const CM = { 0: '알 수 없음', 1: '앱/리모컨', 2: 'SDK(이 시스템)' };
 const GAIT = { 0: '걷기', 3: '두 발', 4: '뒤집기', 6: '보행 변형', 7: '자세 추종', 8: '달리기', 12: '점프' };
 const LEGS = ['앞왼(FL)', '앞오(FR)', '뒤왼(HL)', '뒤오(HR)'], JNT = ['엉덩이 roll', '엉덩이 pitch', '무릎'];
 const TEMP_WARN = 60, TEMP_HOT = 70;   // ℃ (제조사 한계 미확인 -> 보수적으로)
-let view_ = 'ctrl', HIST = [], SYS = null;
+let view_ = 'ctrl', HIST = [], SYS = null, MAPS = [];
 
 // ---------------- 탭 ----------------
 document.querySelectorAll('.tab').forEach((t) => t.onclick = () => {
   view_ = t.dataset.view;
   document.querySelectorAll('.tab').forEach((x) => x.classList.toggle('on', x === t));
-  for (const v of ['ctrl', 'diag', 'sys']) $('view-' + v).hidden = v !== view_;
-  if (view_ === 'ctrl') drawMap(); else if (view_ === 'diag') { renderDiag(); drawCharts(); } else renderSys();
+  for (const v of ['ctrl', 'mapping', 'maps', 'diag', 'sys']) $('view-' + v).hidden = v !== view_;
+  if (view_ === 'ctrl') drawMap(); else if (view_ === 'diag') { renderDiag(); drawCharts(); }
+  else if (view_ === 'sys') renderSys(); else if (view_ === 'mapping') { renderMapping(); drawLive(); } else renderMaps();
 });
 
 let ws = null, S = null, mapImg = null, mapInfo = null;
@@ -27,10 +28,12 @@ function connect() {
   ws.onclose = () => { setPill('link', '서버 끊김 · 재연결 중', 'bad'); S = null; render(); setTimeout(connect, 1500); };
   ws.onmessage = (e) => {
     const m = JSON.parse(e.data);
-    if (m.type === 'state') { S = m; render(); if (view_ === 'diag') renderDiag(); }
+    if (m.type === 'state') { S = m; render(); if (view_ === 'diag') renderDiag(); if (view_ === 'mapping') renderMapping(); if (view_ === 'maps') renderLoc(); }
     else if (m.type === 'map') loadMap(m);
     else if (m.type === 'history') { HIST = m.rows; if (view_ === 'diag') drawCharts(); }
     else if (m.type === 'system') { SYS = m; if (view_ === 'sys') renderSys(); }
+    else if (m.type === 'maps') { MAPS = m.maps; if (view_ === 'maps') renderMaps(); }
+    else if (m.type === 'mapping') { onMapping(m); }
   };
 }
 const send = (o) => ws && ws.readyState === 1 && ws.send(JSON.stringify(o));
@@ -110,7 +113,7 @@ $('motion').onchange = (e) => {
 const cv = $('map'), ctx = cv.getContext('2d');
 const view = { scale: 40, cx: 0, cy: 0 };     // px/m, 화면 중심의 월드 좌표
 window.bpxView = view;                         // 화면 시험(헤드리스 캡처)용
-let follow = true, goalMode = false, drag = null, goalDraft = null;
+let follow = true, goalMode = null, drag = null, goalDraft = null;   // goalMode: null | 'goal' | 'init'
 
 function loadMap(m) {
   const raw = atob(m.data), img = new ImageData(m.w, m.h);
@@ -160,8 +163,8 @@ function drawMap() {
     ctx.stroke();
   }
   // 목표
-  const g = goalDraft || (S && S.goal);
-  if (g) arrow(g[0], g[1], g[2], '#d97706', 0.5);
+  if (goalDraft) arrow(goalDraft[0], goalDraft[1], goalDraft[2], goalMode === 'init' ? '#16a34a' : '#d97706', 0.5);
+  else if (S && S.goal) arrow(S.goal[0], S.goal[1], S.goal[2], '#d97706', 0.5);
   if (p) drawDog(p[1], p[2], p[3], S.status || {});
 }
 
@@ -237,12 +240,17 @@ cv.addEventListener('pointermove', (e) => {
 });
 cv.addEventListener('pointerup', () => {
   if (goalDraft) {
-    send({ type: 'goal', x: goalDraft[0], y: goalDraft[1], yaw: goalDraft[2] });
-    goalDraft = null; goalMode = false; $('b-goal').classList.remove('on'); cv.classList.remove('goal');
+    send({ type: goalMode === 'init' ? 'init_pose' : 'goal', x: goalDraft[0], y: goalDraft[1], yaw: goalDraft[2] });
+    goalDraft = null; setPoseMode(null);
   }
   drag = null;
 });
-$('b-goal').onclick = () => { goalMode = !goalMode; $('b-goal').classList.toggle('on', goalMode); cv.classList.toggle('goal', goalMode); };
+function setPoseMode(m) {
+  goalMode = m;
+  $('b-goal').classList.toggle('on', m === 'goal'); $('b-init').classList.toggle('on', m === 'init'); cv.classList.toggle('goal', !!m);
+}
+$('b-goal').onclick = () => setPoseMode(goalMode === 'goal' ? null : 'goal');
+$('b-init').onclick = () => setPoseMode(goalMode === 'init' ? null : 'init');
 $('b-cancel').onclick = () => send({ type: 'cancel_goal' });
 $('b-follow').onclick = () => { follow = !follow; $('b-follow').classList.toggle('on', follow); drawMap(); };
 window.addEventListener('resize', drawMap);
@@ -259,7 +267,7 @@ function drawJoy() {
   jx.strokeStyle = '#cbd5e1'; jx.lineWidth = 2;
   jx.beginPath(); jx.arc(R, R, R - KNOB / 2, 0, 7); jx.stroke();
   jx.beginPath(); jx.moveTo(R, 12); jx.lineTo(R, jc.height - 12); jx.moveTo(12, R); jx.lineTo(jc.width - 12, R); jx.stroke();
-  const [a, b] = stick || keyStick() || (gp.live ? [-(gp.wz || gp.vy), gp.vx] : [0, 0]);
+  const [a, b] = stick || keyStick() || [0, 0];
   jx.fillStyle = canControl ? '#2563eb' : '#9ca3af';
   jx.beginPath(); jx.arc(R + a * (R - KNOB), R - b * (R - KNOB), KNOB / 1.4, 0, 7); jx.fill();
 }
@@ -270,7 +278,6 @@ function keyStick() {
 }
 function command() {
   const sp = $('speed').value / 100, mv = S ? S.max_v : [0.4, 0.25, 1.0];
-  if (gp.live) return { vx: gp.vx * mv[0] * sp, vy: gp.vy * mv[1] * sp, wz: gp.wz * mv[2] * sp };
   const [a, b] = stick || keyStick() || [0, 0];
   const side = (keys.has('q') ? 1 : 0) - (keys.has('e') ? 1 : 0);
   const strafe = $('strafe').checked;
@@ -311,37 +318,10 @@ window.addEventListener('keydown', (e) => {
 });
 window.addEventListener('keyup', (e) => {
   keys.delete(e.key.toLowerCase());
-  if (!keys.size && !stick && !gp.live && joyTimer) stopJoy(); else drawJoy();
+  if (!keys.size && !stick && joyTimer) stopJoy(); else drawJoy();
 });
 window.addEventListener('blur', () => { if (joyTimer) stopJoy(); });   // 창을 벗어나면 정지
 $('speed').oninput = () => { $('speed-v').textContent = $('speed').value + '%'; };
-
-// ---------------- 게임패드 (표준 매핑: Xbox 배치) ----------------
-// LB(4)/RB(5) 를 누르고 있는 동안만 주행 (데드맨). 떼면 즉시 정지. B(1) = 비상 정지
-const gp = { live: false, vx: 0, vy: 0, wz: 0, prev: [] };
-const DZ = 0.12, dz = (v) => (Math.abs(v) < DZ ? 0 : (v - Math.sign(v) * DZ) / (1 - DZ));
-function pollGamepad() {
-  const pad = [...(navigator.getGamepads ? navigator.getGamepads() : [])].find((p) => p && p.connected);
-  const el = $('gp-status');
-  if (!pad) { if (gp.live) { gp.live = false; stopJoy(); } el.className = 'muted'; el.textContent = '게임패드 없음 (연결 후 아무 버튼이나 누르세요)'; return; }
-  const btn = (i) => !!(pad.buttons[i] && pad.buttons[i].pressed);
-  const edge = (i) => btn(i) && !gp.prev[i];
-  const dead = btn(4) || btn(5);
-  if (edge(1)) { stopJoy(); send({ type: 'action', name: 'damping' }); }           // B: 비상 정지
-  if (dead && canControl && edge(3)) send({ type: 'action', name: 'stand' });      // LB/RB + Y
-  if (dead && canControl && edge(0)) send({ type: 'action', name: 'sit' });        // LB/RB + A
-  gp.vx = -dz(pad.axes[1] || 0); gp.vy = -dz(pad.axes[0] || 0); gp.wz = -dz(pad.axes[2] || 0);
-  const wasLive = gp.live;
-  gp.live = dead && canControl;
-  if (gp.live && !wasLive) startJoy();
-  if (!gp.live && wasLive) stopJoy();
-  if (gp.live) drawJoy();
-  gp.prev = pad.buttons.map((b) => b.pressed);
-  el.className = gp.live ? 'live' : 'on';
-  el.textContent = `${pad.id.slice(0, 40)} · ${gp.live ? '주행 허용 중 (LB/RB)' : canControl ? 'LB/RB 를 누르면 주행' : '조종 모드 꺼짐'}`;
-}
-window.addEventListener('gamepaddisconnected', () => { if (gp.live) { gp.live = false; stopJoy(); } });
-setInterval(pollGamepad, 50);
 
 // ---------------- 진단 탭 ----------------
 const deg = (r) => (r * 180 / Math.PI).toFixed(1);
@@ -432,6 +412,155 @@ function renderSys() {
   $('sys-nodes').innerHTML = (SYS.ros_nodes || []).map((n) => `<li>${n}</li>`).join('');
 }
 window.addEventListener('resize', () => { if (view_ === 'diag') drawCharts(); });
+
+// ---------------- 매핑 탭 ----------------
+const mcv = $('mcv'), mx = mcv.getContext('2d');
+const live = { gen: -1, cells: [], path: [], pose: null, res: 0.2, view: { scale: 8, cx: 0, cy: 0 }, fitted: false, auto: true, drag: null };   // auto: 사용자가 확대·이동하기 전까지 계속 화면 맞춤
+const fmtTime = (s) => `${Math.floor(s / 60)}분 ${String(s % 60).padStart(2, '0')}초`;
+function session() { return S && S.session && S.session.alive ? S.session : null; }
+
+function renderMapping() {
+  const ss = session(), mapping = ss && ss.kind === 'mapping';
+  $('m-running').hidden = !mapping;
+  $('m-start').hidden = !!mapping;
+  $('m-start').disabled = !!ss;
+  $('m-name').disabled = $('m-source').disabled = !!ss;
+  $('m-name').parentElement.hidden = $('m-source').parentElement.hidden = !!mapping;
+  if (ss && !mapping) $('m-proc').textContent = '위치추정 세션이 실행 중입니다. 지도 탭에서 정지한 뒤 매핑하세요.';
+  if (mapping) {
+    $('m-cur').textContent = `${ss.info.map} (${ss.info.source === 'bag' ? '시험 bag' : '라이다'})`;
+    $('m-elapsed').textContent = fmtTime(ss.elapsed);
+  }
+  const lg = S && S.session ? S.session.log : [];
+  if (view_ === 'mapping') $('m-log').textContent = (lg || []).join('\n');
+  // 저장 후 처리 상태
+  const name = (S && S.session && S.session.info && S.session.info.map) || $('m-name').value;
+  const mm = MAPS.find((m) => m.name === name);
+  if (!mapping && mm && mm.job && mm.job.state) {
+    $('m-proc').innerHTML = mm.job.state === 'running' ? `<b>${name}</b> 처리 중: ${mm.job.step}`
+      : mm.job.state === 'done' ? `<b>${name}</b> 처리 완료 → 지도 탭에서 확인하세요.` : `<b>${name}</b> 처리 실패: ${mm.job.error}`;
+  }
+}
+function onMapping(m) {
+  if (m.gen !== live.gen) { live.gen = m.gen; live.cells = []; live.auto = true; }
+  if (m.from === live.cells.length) live.cells.push(...m.cells);
+  live.path = m.path || []; live.pose = m.pose; live.res = m.res;
+  $('m-cells').textContent = m.total.toLocaleString();
+  let d = 0; for (let i = 1; i < live.path.length; i++) d += Math.hypot(live.path[i][0] - live.path[i - 1][0], live.path[i][1] - live.path[i - 1][1]);
+  $('m-dist').textContent = `${d.toFixed(1)} m`;
+  if (view_ === 'mapping') drawLive();
+}
+function fitLive() {
+  if (!live.cells.length) return;
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const [a, b] of live.cells) { x0 = Math.min(x0, a); x1 = Math.max(x1, a); y0 = Math.min(y0, b); y1 = Math.max(y1, b); }
+  const r = live.res, w = (x1 - x0 + 1) * r, h = (y1 - y0 + 1) * r;
+  live.view.cx = (x0 + x1 + 1) / 2 * r; live.view.cy = (y0 + y1 + 1) / 2 * r;
+  live.view.scale = Math.max(0.5, Math.min(mcv.width / (w * 1.1), mcv.height / (h * 1.1), 60));
+  live.fitted = true;
+}
+function drawLive() {
+  const r = mcv.getBoundingClientRect();
+  if (mcv.width !== Math.round(r.width) || mcv.height !== Math.round(r.height)) { mcv.width = r.width; mcv.height = r.height; }
+  if (live.auto && live.cells.length > 20) fitLive();
+  const v = live.view, W = mcv.width, H = mcv.height;
+  const X = (x) => W / 2 + (x - v.cx) * v.scale, Y = (y) => H / 2 - (y - v.cy) * v.scale;
+  mx.fillStyle = '#1f2430'; mx.fillRect(0, 0, W, H);
+  const cs = Math.max(1, live.res * v.scale);
+  mx.fillStyle = '#e5e7eb';
+  for (const [a, b] of live.cells) mx.fillRect(X(a * live.res), Y((b + 1) * live.res), cs, cs);
+  if (live.path.length > 1) {
+    mx.strokeStyle = '#60a5fa'; mx.lineWidth = 2; mx.beginPath();
+    live.path.forEach(([x, y], i) => (i ? mx.lineTo(X(x), Y(y)) : mx.moveTo(X(x), Y(y)))); mx.stroke();
+  }
+  if (live.pose) {
+    const [x, y, yaw] = live.pose;
+    mx.save(); mx.translate(X(x), Y(y)); mx.rotate(-yaw);
+    mx.fillStyle = '#fbbf24'; mx.beginPath(); mx.moveTo(14, 0); mx.lineTo(-8, -8); mx.lineTo(-4, 0); mx.lineTo(-8, 8); mx.closePath(); mx.fill();
+    mx.restore();
+  }
+  mx.fillStyle = '#9ca3af'; mx.font = '12px sans-serif';
+  if (!live.cells.length) mx.fillText(session() && session().kind === 'mapping' ? '라이다 데이터를 기다리는 중…' : '매핑을 시작하면 지도가 여기에 그려집니다', 16, 26);
+  // 축척 막대
+  const m = v.scale >= 20 ? 1 : v.scale >= 4 ? 5 : v.scale >= 1 ? 20 : 100;
+  mx.strokeStyle = '#9ca3af'; mx.lineWidth = 2; mx.beginPath(); mx.moveTo(16, H - 16); mx.lineTo(16 + m * v.scale, H - 16); mx.stroke();
+  mx.fillText(`${m} m`, 16, H - 22);
+}
+mcv.addEventListener('wheel', (e) => { e.preventDefault(); live.view.scale = Math.min(200, Math.max(0.3, live.view.scale * (e.deltaY < 0 ? 1.15 : 1 / 1.15))); live.auto = false; drawLive(); }, { passive: false });
+mcv.addEventListener('pointerdown', (e) => { mcv.setPointerCapture(e.pointerId); live.drag = { u: e.offsetX, v: e.offsetY, cx: live.view.cx, cy: live.view.cy }; live.auto = false; });
+mcv.addEventListener('pointermove', (e) => { const d = live.drag; if (!d) return; live.view.cx = d.cx - (e.offsetX - d.u) / live.view.scale; live.view.cy = d.cy + (e.offsetY - d.v) / live.view.scale; drawLive(); });
+mcv.addEventListener('pointerup', () => { live.drag = null; });
+$('m-fit').onclick = () => { live.auto = true; fitLive(); drawLive(); };
+$('m-start').onclick = () => {
+  const name = $('m-name').value.trim();
+  if (!/^[\w\-가-힣]{1,40}$/.test(name)) { alert('지도 이름: 영문·숫자·한글·_·- 40자 이내'); return; }
+  if (MAPS.some((m) => m.name === name)) { alert('같은 이름의 지도가 이미 있습니다'); return; }
+  send({ type: 'mapping_start', name, source: $('m-source').value });
+};
+$('m-save').onclick = () => { if (confirm('지도를 저장하고 매핑을 끝낼까요? 저장 후 자동으로 처리(수평 보정·2D 지도)합니다.')) send({ type: 'mapping_save' }); };
+$('m-cancel').onclick = () => { if (confirm('저장하지 않고 매핑을 취소할까요? 지금까지 만든 지도는 버려집니다.')) send({ type: 'mapping_cancel' }); };
+
+// ---------------- 지도 탭 ----------------
+let selMap = null;
+const JOB = { running: ['처리 중', 'run'], done: ['처리 완료', 'ok'], error: ['처리 실패', 'err'] };
+function renderMaps() {
+  $('maps-count').textContent = `(${MAPS.length}개)`;
+  if (!selMap && MAPS.length) selMap = (MAPS.find((m) => m.active) || MAPS[0]).name;
+  const lst = $('maps-list');
+  lst.innerHTML = MAPS.length ? '' : '<p class="muted">아직 지도가 없습니다. 매핑 탭에서 만드세요.</p>';
+  for (const m of MAPS) {
+    const d = document.createElement('div');
+    d.className = 'mapcard' + (m.name === selMap ? ' sel' : '');
+    const job = m.job && JOB[m.job.state];
+    d.innerHTML = `<div class="nm">${m.name}${m.active ? '<span class="badge act">활성</span>' : ''}`
+      + (job ? `<span class="badge ${job[1]}">${job[0]}</span>` : m.ready ? '<span class="badge ok">사용 가능</span>' : '<span class="badge">미처리</span>')
+      + `</div><div class="sub">${m.created} · ${m.points ? (m.points / 1000).toFixed(0) + 'k 점' : '-'} · ${m.size_mb} MB${m.grid ? ` · ${m.grid.m[0]}×${m.grid.m[1]} m` : ''}</div>`;
+    d.onclick = () => { selMap = m.name; renderMaps(); };
+    lst.appendChild(d);
+  }
+  const m = MAPS.find((x) => x.name === selMap);
+  $('pv-name').textContent = m ? m.name : '';
+  for (const id of ['pv-act', 'pv-ren', 'pv-proc', 'pv-del']) $(id).disabled = !m;
+  if (m) {
+    $('pv-act').disabled = m.active || !m.ready;
+    $('pv-del').disabled = m.active;
+    $('pv-proc').disabled = !m.files['map.pcd'] || (m.job && m.job.state === 'running');
+    const key = `${m.name}|${m.files['map.yaml']}|${m.job && m.job.state}`;
+    const img = $('pv-img');
+    if (m.files['map.yaml']) { if (img.dataset.key !== key) { img.src = `/api/maps/${encodeURIComponent(m.name)}/preview.png?t=${Date.now()}`; img.dataset.key = key; } img.hidden = false; $('pv-empty').hidden = true; }
+    else { img.hidden = true; img.dataset.key = ''; $('pv-empty').hidden = false; $('pv-empty').textContent = m.job && m.job.state === 'running' ? `처리 중: ${m.job.step}` : '2D 지도가 없습니다 (다시 처리를 눌러 만드세요)'; }
+    const f = m.files;
+    $('pv-info').innerHTML = [['만든 시각', m.created], ['출처', m.source || '-'], ['메모', m.note || '-'],
+      ['점 수', m.points ? m.points.toLocaleString() : '-'], ['크기', `${m.size_mb} MB`],
+      ['2D 지도', m.grid ? `${m.grid.w}×${m.grid.h} 칸 (${m.grid.res} m) = ${m.grid.m[0]}×${m.grid.m[1]} m` : '-'],
+      ['매핑 시작 기울기', m.tilt_deg != null ? `${m.tilt_deg}°` : '-'],
+      ['파일', ['map.pcd', 'gravity.json', 'map_level.pcd', 'map.yaml'].map((k) => `${f[k] ? '✓' : '✗'} ${k}`).join('  ')],
+      ...(m.job && m.job.error ? [['처리 오류', m.job.error]] : [])].map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+  } else { $('pv-img').hidden = true; $('pv-empty').hidden = false; $('pv-empty').textContent = '왼쪽에서 지도를 고르세요'; $('pv-info').innerHTML = ''; }
+  renderLoc();
+}
+function renderLoc() {
+  const act = S && S.active_map, ss = session();
+  $('loc-map').textContent = act || '(활성 지도 없음)';
+  const loc = ss && ss.kind === 'localization';
+  $('loc-start').disabled = !act || !!ss;
+  $('loc-stop').disabled = !loc;
+  $('loc-source').disabled = $('loc-nav').disabled = !!ss;
+  $('loc-status').innerHTML = loc ? `<b>실행 중</b> · ${ss.info.map}${ss.info.nav ? ' + Nav2' : ''} · ${ss.info.source === 'bag' ? '시험 bag' : '라이다'} · ${fmtTime(ss.elapsed)} · 조종 탭 지도에서 위치를 확인하세요`
+    : ss ? '매핑 세션이 실행 중입니다.' : act ? '정지됨. 로봇을 매핑 시작점에 두고 시작하면 바로 위치를 잡습니다 (다르면 조종 탭에서 "초기 위치").' : '처리가 끝난 지도를 "활성 지도로" 지정하세요.';
+}
+$('pv-act').onclick = () => send({ type: 'map_activate', name: selMap });
+$('pv-proc').onclick = () => send({ type: 'map_process', name: selMap });
+$('pv-ren').onclick = () => {
+  const nw = (prompt(`새 이름 (현재: ${selMap})`, selMap) || '').trim();
+  if (!nw || nw === selMap) return;
+  if (!/^[\w\-가-힣]{1,40}$/.test(nw)) { alert('영문·숫자·한글·_·- 40자 이내'); return; }
+  send({ type: 'map_rename', old: selMap, new: nw }); selMap = nw;
+};
+$('pv-del').onclick = () => { if (confirm(`지도 "${selMap}" 을(를) 삭제할까요? 되돌릴 수 없습니다.`)) { send({ type: 'map_delete', name: selMap }); selMap = null; } };
+$('loc-start').onclick = () => send({ type: 'loc_start', source: $('loc-source').value, nav: $('loc-nav').checked });
+$('loc-stop').onclick = () => send({ type: 'session_stop' });
+window.addEventListener('resize', () => { if (view_ === 'mapping') drawLive(); });
 
 drawJoy();
 connect();

@@ -11,6 +11,8 @@
   <h1>BPX 관리자</h1>
   <nav class="tabs">
     <button class="tab on" data-view="ctrl">조종</button>
+    <button class="tab" data-view="mapping">매핑</button>
+    <button class="tab" data-view="maps">지도</button>
     <button class="tab" data-view="diag">진단</button>
     <button class="tab" data-view="sys">시스템</button>
   </nav>
@@ -60,6 +62,7 @@
     <div class="maphead">
       <h2>지도 · 위치 <span id="frame" class="muted"></span></h2>
       <div>
+        <button id="b-init" class="small" title="지도에서 로봇 위치를 누르고 끌어 방향 지정 (위치추정 초기화)">초기 위치</button>
         <button id="b-goal" class="small" title="지도에서 누르고 끌어 방향 지정">목표 지정</button>
         <button id="b-cancel" class="small">목표 취소</button>
         <button id="b-follow" class="small on">로봇 따라가기</button>
@@ -78,15 +81,70 @@
     <p class="hint">키보드: W/S 전후 · A/D 회전 · Q/E 옆걸음 · 손을 떼면 즉시 정지</p>
     <div id="joy-out" class="muted">정지</div>
 
-    <h2>게임패드</h2>
-    <div id="gp-status" class="muted">게임패드 없음 (연결 후 아무 버튼이나 누르세요)</div>
-    <table class="keymap">
-      <tr><td>LB / RB (누르고 있기)</td><td>주행 허용 (떼면 정지)</td></tr>
-      <tr><td>왼쪽 스틱</td><td>전후 · 옆걸음</td></tr>
-      <tr><td>오른쪽 스틱 좌우</td><td>회전</td></tr>
-      <tr><td>LB/RB + Y / A</td><td>일어서기 / 앉기</td></tr>
-      <tr><td>B</td><td>비상 정지 (힘 풀기)</td></tr>
-    </table>
+  </section>
+</main>
+
+
+<!-- ======================= 매핑 ======================= -->
+<main id="view-mapping" class="view side" hidden>
+  <section class="panel">
+    <h2>새 지도 만들기</h2>
+    <label class="field">지도 이름 <input id="m-name" placeholder="예: office_1f" maxlength="40"></label>
+    <label class="field">입력
+      <select id="m-source"><option value="live">라이다 (Mid-360S)</option><option value="bag">시험용 bag 재생 (라이다 없이)</option></select>
+    </label>
+    <button id="m-start" class="wide primary">매핑 시작</button>
+    <div id="m-running" hidden>
+      <dl class="stats">
+        <dt>지도</dt><dd id="m-cur">-</dd>
+        <dt>경과</dt><dd id="m-elapsed">-</dd>
+        <dt>관측 칸 (0.2 m)</dt><dd id="m-cells">-</dd>
+        <dt>이동 거리</dt><dd id="m-dist">-</dd>
+      </dl>
+      <button id="m-save" class="wide primary">저장하고 종료</button>
+      <button id="m-cancel" class="wide warn">저장하지 않고 취소</button>
+    </div>
+    <div id="m-proc" class="hint"></div>
+    <h2>요령</h2>
+    <ul class="tips">
+      <li>로봇을 <b>멈춘 상태</b>에서 시작하세요. 처음 1초 동안 중력 방향을 잽니다.</li>
+      <li>천천히 이동하고, 제자리 빠른 회전은 피하세요.</li>
+      <li>끝날 때 <b>출발점 근처로 돌아오면</b> 지도가 더 정확해집니다.</li>
+      <li>저장하면 수평 보정과 Nav2용 2D 지도가 자동으로 만들어집니다.</li>
+    </ul>
+    <h2>세션 로그</h2>
+    <pre id="m-log" class="log"></pre>
+  </section>
+  <section class="panel col">
+    <div class="maphead"><h2>실시간 지도 <span class="muted">(위에서 본 모습, 매핑 좌표)</span></h2>
+      <button id="m-fit" class="small">전체 보기</button></div>
+    <canvas id="mcv"></canvas>
+  </section>
+</main>
+
+<!-- ======================= 지도 관리 ======================= -->
+<main id="view-maps" class="view side" hidden>
+  <section class="panel">
+    <h2>지도 목록 <span class="muted" id="maps-count"></span></h2>
+    <div id="maps-list"></div>
+  </section>
+  <section class="panel col">
+    <div class="maphead"><h2>미리보기 <span id="pv-name" class="muted"></span></h2>
+      <div><button id="pv-act" class="small">활성 지도로</button>
+        <button id="pv-ren" class="small">이름 변경</button>
+        <button id="pv-proc" class="small">다시 처리</button>
+        <button id="pv-del" class="small warn">삭제</button></div></div>
+    <div class="pvwrap"><img id="pv-img" alt=""><div id="pv-empty" class="muted">왼쪽에서 지도를 고르세요</div></div>
+    <dl class="stats" id="pv-info"></dl>
+    <h2>위치추정 · 자율주행</h2>
+    <div class="locbar">
+      <span>지도 <b id="loc-map">-</b></span>
+      <select id="loc-source"><option value="live">라이다</option><option value="bag">시험용 bag</option></select>
+      <label><input type="checkbox" id="loc-nav"> Nav2 함께</label>
+      <button id="loc-start" class="primary">시작</button>
+      <button id="loc-stop" class="warn">정지</button>
+    </div>
+    <div id="loc-status" class="hint"></div>
   </section>
 </main>
 

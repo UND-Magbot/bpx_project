@@ -45,7 +45,14 @@ MirrorMe(mirrormetech.com) **BPX 4족로봇**을 로봇에 올린 **미니PC**(U
   - 조종 모드를 끄면 브리지가 속도 0 + 플래그 해제 (서 있던 로봇은 펌웨어가 세워 둠 → 끄기 전에 앉힐 것)
   - uvicorn 은 `ws='wsproto'` 필수 (Ubuntu 22.04 websockets 9.1 이 Python 3.10 과 호환 안 됨)
   - 탭: 조종(상태·동작·보행 걷기/달리기·지도·조이스틱·게임패드) / 진단(관절 12·모터/드라이버 온도·IMU·30분 추이) / 시스템(CPU·메모리·온도·디스크·포트 링크·ROS 노드·브리지 재시작)
-  - 게임패드: 브라우저 Gamepad API, LB/RB 데드맨(누르는 동안만 주행), LB/RB+Y 서기, +A 앉기, B 비상 정지
+  - 게임패드는 사용자 요청으로 제거 (2026-10-21, 커밋 303113f 에 구현 남아 있음)
+  - **매핑 탭**: 지도 이름 → 시작(라이다 / 시험 bag) → 실시간 윗면도(중력 보정 + 라이다 높이 -0.3~+1.8 m, 0.2 m 격자) → 저장하고 종료 → 자동 처리
+  - **지도 탭**: 목록·미리보기·활성 지정·이름 변경·다시 처리·삭제(활성은 삭제 불가), 활성 지도로 위치추정(+Nav2) 시작/정지
+  - 조종 탭 지도: "초기 위치" 도구 → /initialpose (map 좌표)
+  - 세션: mapping_session.launch.py / localization_session.launch.py 를 웹이 ros2 launch 로 띄움 (동시에 하나, 정지는 SIGINT→TERM→KILL).
+    로그 ~/.ros/bpx_web_sessions/. 시험 bag: lidar_ws/bags/aist_custom(CustomMsg), rosbag2_2024_04_16-14_17_01(PointCloud2)
+  - 시험 bag 위치추정은 base 프레임을 bag_base_link 로 (실행 중인 브리지의 odom->base_link 와 TF 부모 충돌 방지)
+  - 큰 2D 지도는 300만 칸 이하로 줄여서 화면에 보냄 (장애물 > 빈 공간 > 미확인 우선 풀링)
   - 보행 전환 ~/walk ~/run 은 ready 에서만. 점프·뒤집기는 노출 안 함. 브리지 /bpx/diag (1 Hz) = 온도·IMU rpy·max_vel·펌웨어
   - 자동 실행 서비스가 `web:=true` 로 띄움. fake 시험: lidar_ws/webtest/scenario.py (10항목), gp_test.py (게임패드 4항목)
 - `scripts/bpx_cmd.py` ROS 없이 단발 동작 (check/watch/stand/sit/damping/zero, --fake)
@@ -78,11 +85,11 @@ MirrorMe(mirrormetech.com) **BPX 4족로봇**을 로봇에 올린 **미니PC**(U
   - **Livox IMU 가속도 단위 = g** (정지 시 |a|≈1.0). FAST-LIO 는 내부 정규화로 무관, 다른 패키지에 줄 땐 ×9.81
   - FAST-LIO `camera_init` 은 출발 시 센서 자세 기준(중력 정렬 아님) → 센서가 기울면 지도도 기움.
     2D 지도/NDT/Nav2 로 넘길 때 중력 정렬 필요 (AIST bag: 초기 7.3° 기울기로 고도 46 m 왜곡, 정렬 후 ~10 m)
-  - FAST-LIO 매핑: `mapping.launch.py map_name:=X` → `/map_save` → `~/bpx/maps/X.pcd`
+  - 지도 = 폴더 `~/bpx/maps/<이름>/` : map.pcd, gravity.json, map_level.pcd, map.yaml/pgm(Nav2), preview.png, meta.json. 활성 지도 maps/active.json
+  - 저장 후 자동 처리(웹 maps.py): align_map_gravity.py → generate_occupancy_map_from_pcd (0.05 m, 장애물 0.3~2.0 m, 팽창 0)
   - PointCloud2(xfer_format 0) bag → CustomMsg 변환: `scripts/livox_pc2_to_custom.py <in> <out>`
   - 공개 bag 검증: AIST "Driving SLAM Test with Livox MID360" (Zenodo 14841855, CC BY 4.0) 277 s / 1.07 km 루프 매핑 정상
     bag 은 `lidar_ws/bags/` 에 둔다 (/tmp 는 재부팅 때 지워짐)
-  - 지도 수평 보정: mapping.launch.py 가 시작 1초 IMU 로 `<map>.gravity.json` 저장 → `scripts/align_map_gravity.py <map>.pcd` → `<map>_level.pcd`
 - 위치추정: lidar_localization_ros2 (main ba9f7f06db, NDT_OMP) + ndt_omp_ros2, `lidar_ws` (install_livox.sh)
   - Nav2 모드(기본) = map→odom 발행, odom→base_link 는 브리지 LegOdom. bag 시험처럼 odom 없으면 `enable_map_odom_tf:=false`
   - 입력은 PointCloud2 → 위치추정 때 lidar.launch.py `xfer_format:=0` (매핑 FAST-LIO 는 1)

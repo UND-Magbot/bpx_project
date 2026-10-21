@@ -20,6 +20,7 @@ import base64
 import json
 import math
 import os
+import shutil
 import subprocess
 import threading
 import time
@@ -29,20 +30,28 @@ import rclpy
 import uvicorn
 from ament_index_python.packages import get_package_share_directory
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, Response
-from geometry_msgs.msg import PoseStamped, Twist
+from fastapi.responses import Response
+import numpy as np
+from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Twist
 from nav2_msgs.action import NavigateToPose
 from nav_msgs.msg import OccupancyGrid, Odometry
 from rclpy.action import ActionClient
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
-from sensor_msgs.msg import BatteryState, JointState
+from sensor_msgs.msg import BatteryState, JointState, PointCloud2
 from std_msgs.msg import String
 from std_srvs.srv import SetBool, Trigger
 from tf2_ros import Buffer, TransformListener
 
+from bpx_web.maps import MapStore, pool_grid
+from bpx_web.procs import SessionManager
 from bpx_web.sysinfo import SysInfo
+
+MAP_MAX_CELLS = 3_000_000      # 화면으로 보내는 2D 지도 최대 칸 수 (넘으면 줄임)
+PREVIEW_RES = 0.2              # 매핑 실시간 미리보기 격자 (m)
+PREVIEW_Z = (0.3, 1.8)         # 미리보기 높이 범위: 라이다 기준 아래 0.3 m ~ 위 1.8 m (수평 보정 후)
+BAG_DIR = os.path.expanduser('~/bpx/lidar_ws/bags')
 
 STATIC_DIR = os.path.join(get_package_share_directory('bpx_web'), 'static')
 TELEOP_TIMEOUT_S = 0.3
@@ -90,6 +99,18 @@ class WebNode(Node):
         self.history = deque(maxlen=1800)       # 1 Hz x 30 분
         self.sys = SysInfo()
         self.sysinfo = {}
+        # 매핑 / 지도 관리
+        self.lidar_ip = p('lidar_ip', '192.168.1.100').value
+        self.test_bag_custom = p('test_bag_custom', os.path.join(BAG_DIR, 'aist_custom')).value
+        self.test_bag_pc2 = p('test_bag_pc2', os.path.join(BAG_DIR, 'rosbag2_2024_04_16-14_17_01')).value
+        self.test_bag_rate = p('test_bag_rate', 1.0).value
+        self.maps = MapStore(log=lambda t: self.get_logger().info(t))
+        self.sessions = SessionManager()
+        self.reset_preview()
+        self.create_subscription(PointCloud2, '/cloud_registered', self.cloud_cb, 5)
+        self.create_subscription(Odometry, '/Odometry', self.lio_odom_cb, 10)
+        self.map_save_cli = self.create_client(Trigger, '/map_save')
+        self.initpose_pub = self.create_publisher(PoseWithCovarianceStamped, '/initialpose', 10)
         self.create_subscription(BatteryState, '/battery_state', self.batt_cb, 10)
         self.create_subscription(Odometry, p('odom_topic', '/odom/mc_odom').value, self.odom_cb, 10)
         latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
@@ -177,9 +198,13 @@ class WebNode(Node):
         self.event(f"지도 수신 {m.info.width}x{m.info.height} ({m.info.resolution} m/칸)")
 
     def pose_tick(self):
-        for frame in ('map', 'odom'):
+        st = self.sessions.status()
+        cands = [('map', 'base_link'), ('odom', 'base_link')]
+        if st and st['alive'] and st['kind'] == 'localization' and st['info'].get('source') == 'bag':
+            cands.insert(0, ('map', 'bag_base_link'))     # 시험 bag 위치추정은 브리지와 겹치지 않는 별도 프레임
+        for frame, child in cands:
             try:
-                tr = self.tf.lookup_transform(frame, 'base_link', rclpy.time.Time())
+                tr = self.tf.lookup_transform(frame, child, rclpy.time.Time())
             except Exception:
                 continue
             x, y = tr.transform.translation.x, tr.transform.translation.y
@@ -297,19 +322,229 @@ class WebNode(Node):
                 'events': list(self.events)[-15:],
                 'diag': {k: v for k, v in self.diag.items() if k != '_t'},
                 'joints': {k: v for k, v in self.joints.items() if k != '_t'},
+                'session': self.sessions.status(),
+                'active_map': self.maps.active(),
             }
 
     def map_payload(self):
         with self.lock:
             m = self.map_msg
             ver = self.map_version
+            cached = self._map_cache if getattr(self, '_map_cache_ver', -1) == ver else None
         if m is None:
             return None
+        if cached:
+            return cached
         i = m.info
-        data = bytes((v + 256) % 256 for v in m.data)   # int8 -> uint8 (-1 = 255 미지)
-        return {'type': 'map', 'version': ver, 'w': i.width, 'h': i.height, 'res': i.resolution,
-                'ox': i.origin.position.x, 'oy': i.origin.position.y, 'oyaw': yaw_of(i.origin.orientation),
-                'data': base64.b64encode(data).decode()}
+        g = np.array(m.data, dtype=np.int8).reshape(i.height, i.width)
+        k = max(1, math.ceil(math.sqrt(i.width * i.height / MAP_MAX_CELLS)))
+        if k > 1:   # 큰 지도는 줄여서 보낸다 (장애물 > 빈 공간 > 미확인 우선, 얇은 벽 보존)
+            g = pool_grid(g, k, 100, 0, -1)
+        h, w = g.shape
+        payload = {'type': 'map', 'version': ver, 'w': w, 'h': h, 'res': i.resolution * k, 'scale': k,
+                   'ox': i.origin.position.x, 'oy': i.origin.position.y, 'oyaw': yaw_of(i.origin.orientation),
+                   'data': base64.b64encode(g.astype(np.uint8).tobytes()).decode()}   # -1 -> 255 미지
+        with self.lock:
+            self._map_cache, self._map_cache_ver = payload, ver
+        return payload
+
+    # ---------------- 매핑 실시간 미리보기 ----------------
+    def cloud_cb(self, m):
+        """FAST-LIO /cloud_registered (camera_init 좌표) 를 0.2 m 격자 윗면도로 누적. 새 칸만 화면에 보낸다."""
+        if not self.sessions.running('mapping'):
+            return
+        self._cloud_n = getattr(self, '_cloud_n', 0) + 1
+        if self._cloud_n % 2:                       # 10 Hz -> 5 Hz 처리
+            return
+        f = {x.name: x.offset for x in m.fields}
+        if not {'x', 'y', 'z'} <= set(f):
+            return
+        n = m.width * m.height
+        if n == 0:
+            return
+        pts = np.frombuffer(bytes(m.data), dtype=np.dtype({'names': ['x', 'y', 'z'], 'formats': ['<f4'] * 3,
+                            'offsets': [f['x'], f['y'], f['z']], 'itemsize': m.point_step}), count=n)
+        xyz = np.stack([pts['x'], pts['y'], pts['z']], axis=1).astype(np.float64)
+        R = self._preview_level()
+        if R is not None:
+            xyz = xyz @ R.T
+        # 바닥·천장을 빼고 라이다 높이 근처만 (중력 보정 후 라이다 기준 -0.3 ~ +1.8 m) -> 벽·장애물 윤곽
+        z0 = self.lio_z if self.lio_z is not None else 0.0
+        sel = (xyz[:, 2] > z0 - PREVIEW_Z[0]) & (xyz[:, 2] < z0 + PREVIEW_Z[1])
+        xyz = xyz[sel]
+        if not len(xyz):
+            return
+        ix = np.floor(xyz[:, 0] / PREVIEW_RES).astype(np.int32)
+        iy = np.floor(xyz[:, 1] / PREVIEW_RES).astype(np.int32)
+        keys = np.unique(np.stack([ix, iy], axis=1), axis=0)
+        with self.lock:
+            for a, b in keys.tolist():
+                if (a, b) not in self.preview_set:
+                    self.preview_set.add((a, b))
+                    self.preview_cells.append((a, b))
+
+    def lio_odom_cb(self, m):
+        if not self.sessions.running('mapping'):
+            return
+        p = m.pose.pose.position
+        v = np.array([p.x, p.y, p.z])
+        R = self._preview_level()
+        yaw = yaw_of(m.pose.pose.orientation)
+        if R is not None:
+            v = R @ v
+            fwd = R @ np.array([math.cos(yaw), math.sin(yaw), 0.0])
+            yaw = math.atan2(fwd[1], fwd[0])
+        x, y = float(v[0]), float(v[1])
+        with self.lock:
+            self.lio_z = float(v[2])
+            self.lio_pose = (x, y, yaw)
+            if not self.lio_path or math.hypot(x - self.lio_path[-1][0], y - self.lio_path[-1][1]) > 0.1:
+                self.lio_path.append((round(x, 2), round(y, 2)))
+
+    def _preview_level(self):
+        """매핑 시작 때 잰 중력(gravity.json)으로 수평 보정 회전. 파일이 생기기 전엔 None."""
+        if self.preview_R is not None:
+            return self.preview_R
+        st = self.sessions.status()
+        if not st or st['kind'] != 'mapping':
+            return None
+        try:
+            g = json.load(open(self.maps.path(st['info']['map'], 'gravity.json')))['gravity_imu']
+        except (OSError, ValueError, KeyError):
+            return None
+        u = np.asarray(g, float) / np.linalg.norm(g)
+        vv = np.cross(u, [0.0, 0.0, 1.0]); sn, c = np.linalg.norm(vv), u[2]
+        if sn < 1e-9:
+            self.preview_R = np.eye(3)
+        else:
+            k = np.array([[0, -vv[2], vv[1]], [vv[2], 0, -vv[0]], [-vv[1], vv[0], 0]])
+            self.preview_R = np.eye(3) + k + k @ k * ((1 - c) / sn ** 2)
+        return self.preview_R
+
+    def reset_preview(self):
+        with self.lock:
+            self.preview_set, self.preview_cells = set(), []
+            self.lio_path, self.lio_pose, self.lio_z, self.preview_R = [], None, None, None
+            self.preview_gen = getattr(self, 'preview_gen', 0) + 1
+
+    # ---------------- 매핑 / 위치추정 세션 ----------------
+    def _source_args(self, source, kind):
+        if source == 'bag':
+            bag = self.test_bag_custom if kind == 'mapping' else self.test_bag_pc2
+            if not os.path.isdir(bag):
+                raise ValueError(f"시험용 bag 없음: {bag}")
+            return ['source:=bag', f'bag:={bag}', f'rate:={self.test_bag_rate}']
+        return ['source:=live', f'lidar_ip:={self.lidar_ip}']
+
+    def mapping_start(self, name, source):
+        if self.maps.path(name) and os.path.exists(self.maps.path(name)):
+            raise ValueError(f"같은 이름의 지도가 이미 있음: {name}")
+        cmd = ['ros2', 'launch', 'bpx_ros', 'mapping_session.launch.py', f'map_name:={name}'] + self._source_args(source, 'mapping')
+        self.reset_preview()
+        self.sessions.start('mapping', cmd, {'map': name, 'source': source})
+        os.makedirs(self.maps.path(name), exist_ok=True)
+        self.maps.write_meta(name, created=time.strftime('%Y-%m-%d %H:%M'),
+                             source='시험 bag' if source == 'bag' else f'라이다 {self.lidar_ip}')
+        return self.event(f"매핑 시작: {name} ({'시험 bag' if source == 'bag' else '라이다'})", True)
+
+    async def mapping_save(self):
+        st = self.sessions.status()
+        if not st or st['kind'] != 'mapping' or not st['alive']:
+            return self.event('저장할 매핑 세션이 없음', False)
+        name = st['info']['map']
+        ok = await self.call(self.map_save_cli, Trigger.Request(), '지도 저장')
+        if not ok:
+            return False
+        await asyncio.get_event_loop().run_in_executor(None, self.sessions.stop)
+        self.event(f"매핑 종료, 지도 처리 시작: {name}")
+        self.maps.process_async(name, done=lambda n: self.event(
+            f"지도 처리 {'완료' if self.maps.jobs[n]['state'] == 'done' else '실패: ' + self.maps.jobs[n]['error']}: {n}",
+            self.maps.jobs[n]['state'] == 'done'))
+        return True
+
+    async def mapping_cancel(self):
+        st = self.sessions.status()
+        await asyncio.get_event_loop().run_in_executor(None, self.sessions.stop)
+        if st and st['kind'] == 'mapping':
+            name = st['info']['map']
+            if not os.path.exists(self.maps.path(name, 'map.pcd')):
+                shutil.rmtree(self.maps.path(name), ignore_errors=True)
+            return self.event(f"매핑 취소 (저장 안 함): {name}", True)
+        return self.event('세션 종료', True)
+
+    def loc_start(self, name, source, nav):
+        info = self.maps.info(name)
+        if not info['ready']:
+            raise ValueError('처리가 끝난 지도만 쓸 수 있음 (수평 보정·2D 지도)')
+        cmd = ['ros2', 'launch', 'bpx_ros', 'localization_session.launch.py', f'map_dir:={self.maps.path(name)}',
+               f"nav:={'true' if nav else 'false'}"] + self._source_args(source, 'loc')
+        self.sessions.start('localization', cmd, {'map': name, 'source': source, 'nav': bool(nav)})
+        return self.event(f"위치추정 시작: {name}{' + Nav2' if nav else ''} ({'시험 bag' if source == 'bag' else '라이다'})", True)
+
+    async def session_stop(self):
+        st = self.sessions.status()
+        await asyncio.get_event_loop().run_in_executor(None, self.sessions.stop)
+        return self.event(f"{'매핑' if st and st['kind'] == 'mapping' else '위치추정'} 세션 종료", True)
+
+    def init_pose(self, x, y, yaw):
+        msg = PoseWithCovarianceStamped()
+        msg.header.frame_id = 'map'
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.pose.pose.position.x, msg.pose.pose.position.y = float(x), float(y)
+        msg.pose.pose.orientation.z, msg.pose.pose.orientation.w = math.sin(yaw / 2), math.cos(yaw / 2)
+        cov = [0.0] * 36
+        cov[0] = cov[7] = 0.25
+        cov[35] = 0.07
+        msg.pose.covariance = cov
+        self.initpose_pub.publish(msg)
+        return self.event(f"초기 위치 지정 ({x:.2f}, {y:.2f}, {math.degrees(yaw):.0f}°)", True)
+
+    def mapping_payload(self, sent):
+        with self.lock:
+            cells = self.preview_cells[sent:]
+            return {'type': 'mapping', 'gen': self.preview_gen, 'res': PREVIEW_RES, 'from': sent, 'cells': cells,
+                    'total': len(self.preview_cells), 'path': self.lio_path[-3000:], 'pose': self.lio_pose}, len(self.preview_cells)
+
+
+MAP_COMMANDS = ('mapping_start', 'mapping_save', 'mapping_cancel', 'loc_start', 'session_stop',
+                'map_activate', 'map_rename', 'map_delete', 'map_process', 'init_pose')
+
+
+async def run_map_command(node: WebNode, kind, msg):
+    """매핑·지도 관리 명령. 잘못된 요청은 화면 기록에 실패로 남긴다."""
+    try:
+        if kind == 'mapping_start':
+            node.mapping_start(msg.get('name', ''), msg.get('source', 'live'))
+        elif kind == 'mapping_save':
+            await node.mapping_save()
+        elif kind == 'mapping_cancel':
+            await node.mapping_cancel()
+        elif kind == 'loc_start':
+            node.loc_start(msg.get('name') or node.maps.active() or '', msg.get('source', 'live'), msg.get('nav', False))
+        elif kind == 'session_stop':
+            await node.session_stop()
+        elif kind == 'map_activate':
+            node.maps.set_active(msg['name'])
+            node.event(f"활성 지도: {msg['name']}", True)
+        elif kind == 'map_rename':
+            st = node.sessions.status()
+            if st and st['alive'] and st['info'].get('map') == msg['old']:
+                raise ValueError('이 지도를 쓰는 세션이 실행 중')
+            node.maps.rename(msg['old'], msg['new'])
+            node.event(f"지도 이름 변경: {msg['old']} → {msg['new']}", True)
+        elif kind == 'map_delete':
+            st = node.sessions.status()
+            node.maps.delete(msg['name'], busy=bool(st and st['alive'] and st['info'].get('map') == msg['name']))
+            node.event(f"지도 삭제: {msg['name']}", True)
+        elif kind == 'map_process':
+            node.maps.process_async(msg['name'], done=lambda n: node.event(
+                f"지도 처리 {'완료' if node.maps.jobs[n]['state'] == 'done' else '실패'}: {n}",
+                node.maps.jobs[n]['state'] == 'done'))
+            node.event(f"지도 다시 처리: {msg['name']}")
+        elif kind == 'init_pose':
+            node.init_pose(msg['x'], msg['y'], msg.get('yaw', 0.0))
+    except (ValueError, RuntimeError, KeyError, OSError) as e:
+        node.event(f"{kind}: {e}", False)
 
 
 def make_app(node: WebNode) -> FastAPI:
@@ -337,15 +572,30 @@ def make_app(node: WebNode) -> FastAPI:
     def api_state():
         return node.state()
 
+    @app.get('/api/maps')
+    def api_maps():
+        return node.maps.list()
+
+    @app.get('/api/maps/{name}/preview.png')
+    def api_preview(name: str):
+        try:
+            png = node.maps.preview_png(name)
+        except ValueError:
+            png = None
+        if png is None:
+            return Response(status_code=404)
+        return Response(png, media_type='image/png', headers={'Cache-Control': 'no-cache'})
+
     @app.websocket('/ws')
     async def ws(sock: WebSocket):
         await sock.accept()
         node.event('관리 화면 접속')
         sent_map = -1
         tick = 0
+        sent_cells, sent_gen = 0, -1
 
         async def sender():
-            nonlocal sent_map, tick
+            nonlocal sent_map, tick, sent_cells, sent_gen
             while True:
                 st = node.state()
                 if st['map_version'] != sent_map:
@@ -359,6 +609,14 @@ def make_app(node: WebNode) -> FastAPI:
                     with node.lock:
                         info = dict(node.sysinfo)
                     await sock.send_text(json.dumps({'type': 'system', **info}))
+                if tick % 10 == 2:                    # 2 s: 지도 목록
+                    lst = await asyncio.get_event_loop().run_in_executor(None, node.maps.list)
+                    await sock.send_text(json.dumps({'type': 'maps', 'maps': lst}))
+                if tick % 5 == 0 and (node.sessions.running('mapping') or sent_gen != node.preview_gen):
+                    if sent_gen != node.preview_gen:  # 새 매핑 세션 -> 처음부터 다시
+                        sent_cells, sent_gen = 0, node.preview_gen
+                    mp, sent_cells = node.mapping_payload(sent_cells)   # 1 s: 매핑 미리보기 (새 칸만)
+                    await sock.send_text(json.dumps(mp))
                 if tick % 25 == 1:                    # 5 s: 30 분 추이
                     with node.lock:
                         hist = list(node.history)
@@ -374,6 +632,8 @@ def make_app(node: WebNode) -> FastAPI:
                     node.set_teleop(msg.get('vx', 0), msg.get('vy', 0), msg.get('wz', 0))
                 elif kind == 'restart_bridge':
                     node.restart_bridge()
+                elif kind in MAP_COMMANDS:
+                    await run_map_command(node, kind, msg)
                 elif kind == 'action' and msg.get('name') in ('stand', 'sit', 'damping', 'zero', 'walk', 'run'):
                     await node.action(msg['name'])
                 elif kind == 'motion':
