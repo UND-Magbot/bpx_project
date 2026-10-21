@@ -61,6 +61,7 @@ class FakeMotion:
         self._state = MS_LYING
         self._target = None          # (목표 상태, 완료 시각)
         self._current = -1.5         # 배터리 전류 (양수 = 충전 중)
+        self._gait = 0               # 0 Walk, 8 Running
         self._vel_flag = False
         self._control_mode = CM_REMOTE
         self._cmd = (0.0, 0.0, 0.0)
@@ -127,9 +128,19 @@ class FakeMotion:
     def getCurrentMotionState(self):
         self._step()
         return self._state
-    def getCurrentGait(self): return 0
+    def getCurrentGait(self): return self._gait
+    def getSubGait(self): return 0
+    def getLastGait(self): return 0
+    def getLastMotionState(self): return MS_LYING
+    def setWalk(self): self._gait = 0; return True
+    def setRunning(self): self._gait = 8; return True
+    def getMaxVelocity(self):
+        return [1.5, 0.5, 2.0] if self._current < 0 else [0.0, 0.0, 0.0]   # 실기: 충전 중엔 0 으로 잠금
+    def getDriverTemperature(self): return [round(38.0 + 0.3 * i, 1) for i in range(12)]
+    def getImuRpy(self): return [0.0, 0.0, self._yaw]
+    def getRobotVersion(self): return (1, 0, 14, 0, 20260818, 0)
     def getControlMode(self): return self._control_mode
-    def getMotorTemperature(self): return [35.0] * 12
+    def getMotorTemperature(self): return [round(35.0 + 0.5 * i, 1) for i in range(12)]
     def getLegOdom(self):
         vx, vy, wz = self._step()
         return {

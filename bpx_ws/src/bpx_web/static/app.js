@@ -4,6 +4,18 @@ const $ = (id) => document.getElementById(id);
 const MOTION = { 0: '엎드림', 1: '일어서는 중', 2: '힘 풀림', 3: '앉는 중', 6: '서 있음 (주행 가능)' };
 const MODE = { idle: '대기', standing: '일어서는 중', ready: '속도 명령 중', sitting: '앉는 중' };
 const CM = { 0: '알 수 없음', 1: '앱/리모컨', 2: 'SDK(이 시스템)' };
+const GAIT = { 0: '걷기', 3: '두 발', 4: '뒤집기', 6: '보행 변형', 7: '자세 추종', 8: '달리기', 12: '점프' };
+const LEGS = ['앞왼(FL)', '앞오(FR)', '뒤왼(HL)', '뒤오(HR)'], JNT = ['엉덩이 roll', '엉덩이 pitch', '무릎'];
+const TEMP_WARN = 60, TEMP_HOT = 70;   // ℃ (제조사 한계 미확인 -> 보수적으로)
+let view_ = 'ctrl', HIST = [], SYS = null;
+
+// ---------------- 탭 ----------------
+document.querySelectorAll('.tab').forEach((t) => t.onclick = () => {
+  view_ = t.dataset.view;
+  document.querySelectorAll('.tab').forEach((x) => x.classList.toggle('on', x === t));
+  for (const v of ['ctrl', 'diag', 'sys']) $('view-' + v).hidden = v !== view_;
+  if (view_ === 'ctrl') drawMap(); else if (view_ === 'diag') { renderDiag(); drawCharts(); } else renderSys();
+});
 
 let ws = null, S = null, mapImg = null, mapInfo = null;
 let canControl = false, motionPending = 0;
@@ -15,8 +27,10 @@ function connect() {
   ws.onclose = () => { setPill('link', '서버 끊김 · 재연결 중', 'bad'); S = null; render(); setTimeout(connect, 1500); };
   ws.onmessage = (e) => {
     const m = JSON.parse(e.data);
-    if (m.type === 'state') { S = m; render(); }
+    if (m.type === 'state') { S = m; render(); if (view_ === 'diag') renderDiag(); }
     else if (m.type === 'map') loadMap(m);
+    else if (m.type === 'history') { HIST = m.rows; if (view_ === 'diag') drawCharts(); }
+    else if (m.type === 'system') { SYS = m; if (view_ === 'sys') renderSys(); }
   };
 }
 const send = (o) => ws && ws.readyState === 1 && ws.send(JSON.stringify(o));
@@ -29,6 +43,9 @@ function render() {
   setPill('robot', !S ? '로봇 -' : !alive ? '브리지 없음' : conn ? '로봇 연결됨' : '로봇 미연결', !S ? '' : conn ? 'ok' : 'bad');
 
   $('s-motion').textContent = conn ? (MOTION[st.motion_state] ?? st.motion_state) : '-';
+  $('s-gait').textContent = conn && st.gait != null ? (GAIT[st.gait] ?? st.gait) : '-';
+  const mt = S && S.diag && S.diag.motor_temp;
+  $('hot').hidden = !(conn && mt && Math.max(...mt) >= TEMP_HOT);
   $('s-mode').textContent = alive ? (MODE[st.mode] ?? st.mode) : '-';
   const cur = st.battery_current != null ? ` · ${st.battery_current > 0 ? '+' : ''}${st.battery_current.toFixed(2)} A` : '';
   $('s-batt').textContent = st.battery != null ? `${st.battery}%${cur}${st.charging ? ' (충전 중)' : ''}` : '-';
@@ -48,6 +65,9 @@ function render() {
   if (could !== canControl) { if (!canControl && joyTimer) stopJoy(); drawJoy(); }
   for (const id of ['b-stand', 'b-sit', 'b-damp', 'estop']) $(id).disabled = !canControl;
   $('b-zero').disabled = !(canControl && st.motion_state === 0 && st.mode === 'idle');
+  for (const id of ['b-walk', 'b-run']) $(id).disabled = !(canControl && st.mode === 'ready');
+  $('b-walk').classList.toggle('on', conn && st.gait === 0 && st.motion_state === 6);
+  $('b-run').classList.toggle('on', conn && st.gait === 8);
   if (st.charging) { $('b-stand').disabled = true; $('b-stand').title = '충전 중에는 로봇이 일어서지 않습니다. 충전기를 빼세요'; }
   else $('b-stand').title = '';
   $('motion').disabled = !conn;
@@ -67,6 +87,13 @@ function render() {
 // ---------------- 동작 버튼 ----------------
 document.querySelectorAll('[data-act]').forEach((b) => b.onclick = () => send({ type: 'action', name: b.dataset.act }));
 $('estop').onclick = () => { stopJoy(); send({ type: 'action', name: 'damping' }); };
+document.querySelectorAll('[data-gait]').forEach((b) => b.onclick = () => {
+  if (b.dataset.gait === 'run' && !confirm('달리기 보행으로 바꿉니다. 속도 상한(0.4 m/s)은 그대로지만 움직임이 커질 수 있습니다.\n주변이 비어 있는지 확인했나요?')) return;
+  send({ type: 'action', name: b.dataset.gait });
+});
+$('b-restart').onclick = () => {
+  if (confirm('브리지를 재시작합니다 (웹·Foxglove 도 함께 재시작, 약 10초).\n조종 모드는 꺼진 읽기 전용으로 다시 시작합니다. 계속할까요?')) send({ type: 'restart_bridge' });
+};
 $('b-zero').onclick = () => {
   const ok = confirm('관절 영점을 설정합니다 (앱의 Reset Joints 와 같음).\n\n' +
     '네 다리의 발 · 정강이 · 무릎이 모두 바닥에 닿은 표준 엎드림 자세인지 확인하세요.\n' +
@@ -232,7 +259,7 @@ function drawJoy() {
   jx.strokeStyle = '#cbd5e1'; jx.lineWidth = 2;
   jx.beginPath(); jx.arc(R, R, R - KNOB / 2, 0, 7); jx.stroke();
   jx.beginPath(); jx.moveTo(R, 12); jx.lineTo(R, jc.height - 12); jx.moveTo(12, R); jx.lineTo(jc.width - 12, R); jx.stroke();
-  const [a, b] = stick || keyStick() || [0, 0];
+  const [a, b] = stick || keyStick() || (gp.live ? [-(gp.wz || gp.vy), gp.vx] : [0, 0]);
   jx.fillStyle = canControl ? '#2563eb' : '#9ca3af';
   jx.beginPath(); jx.arc(R + a * (R - KNOB), R - b * (R - KNOB), KNOB / 1.4, 0, 7); jx.fill();
 }
@@ -243,6 +270,7 @@ function keyStick() {
 }
 function command() {
   const sp = $('speed').value / 100, mv = S ? S.max_v : [0.4, 0.25, 1.0];
+  if (gp.live) return { vx: gp.vx * mv[0] * sp, vy: gp.vy * mv[1] * sp, wz: gp.wz * mv[2] * sp };
   const [a, b] = stick || keyStick() || [0, 0];
   const side = (keys.has('q') ? 1 : 0) - (keys.has('e') ? 1 : 0);
   const strafe = $('strafe').checked;
@@ -283,11 +311,128 @@ window.addEventListener('keydown', (e) => {
 });
 window.addEventListener('keyup', (e) => {
   keys.delete(e.key.toLowerCase());
-  if (!keys.size && !stick && joyTimer) stopJoy(); else drawJoy();
+  if (!keys.size && !stick && !gp.live && joyTimer) stopJoy(); else drawJoy();
 });
 window.addEventListener('blur', () => { if (joyTimer) stopJoy(); });   // 창을 벗어나면 정지
 $('speed').oninput = () => { $('speed-v').textContent = $('speed').value + '%'; };
 
+// ---------------- 게임패드 (표준 매핑: Xbox 배치) ----------------
+// LB(4)/RB(5) 를 누르고 있는 동안만 주행 (데드맨). 떼면 즉시 정지. B(1) = 비상 정지
+const gp = { live: false, vx: 0, vy: 0, wz: 0, prev: [] };
+const DZ = 0.12, dz = (v) => (Math.abs(v) < DZ ? 0 : (v - Math.sign(v) * DZ) / (1 - DZ));
+function pollGamepad() {
+  const pad = [...(navigator.getGamepads ? navigator.getGamepads() : [])].find((p) => p && p.connected);
+  const el = $('gp-status');
+  if (!pad) { if (gp.live) { gp.live = false; stopJoy(); } el.className = 'muted'; el.textContent = '게임패드 없음 (연결 후 아무 버튼이나 누르세요)'; return; }
+  const btn = (i) => !!(pad.buttons[i] && pad.buttons[i].pressed);
+  const edge = (i) => btn(i) && !gp.prev[i];
+  const dead = btn(4) || btn(5);
+  if (edge(1)) { stopJoy(); send({ type: 'action', name: 'damping' }); }           // B: 비상 정지
+  if (dead && canControl && edge(3)) send({ type: 'action', name: 'stand' });      // LB/RB + Y
+  if (dead && canControl && edge(0)) send({ type: 'action', name: 'sit' });        // LB/RB + A
+  gp.vx = -dz(pad.axes[1] || 0); gp.vy = -dz(pad.axes[0] || 0); gp.wz = -dz(pad.axes[2] || 0);
+  const wasLive = gp.live;
+  gp.live = dead && canControl;
+  if (gp.live && !wasLive) startJoy();
+  if (!gp.live && wasLive) stopJoy();
+  if (gp.live) drawJoy();
+  gp.prev = pad.buttons.map((b) => b.pressed);
+  el.className = gp.live ? 'live' : 'on';
+  el.textContent = `${pad.id.slice(0, 40)} · ${gp.live ? '주행 허용 중 (LB/RB)' : canControl ? 'LB/RB 를 누르면 주행' : '조종 모드 꺼짐'}`;
+}
+window.addEventListener('gamepaddisconnected', () => { if (gp.live) { gp.live = false; stopJoy(); } });
+setInterval(pollGamepad, 50);
+
+// ---------------- 진단 탭 ----------------
+const deg = (r) => (r * 180 / Math.PI).toFixed(1);
+const wrapDeg = (r) => deg(Math.atan2(Math.sin(r), Math.cos(r)));   // -180~180°
+const tcls = (t) => (t == null ? '' : t >= TEMP_HOT ? 'hot' : t >= TEMP_WARN ? 'warm' : '');
+function renderDiag() {
+  const j = (S && S.joints) || {}, d = (S && S.diag) || {}, st = (S && S.status) || {};
+  let h = '<tr><th></th>' + JNT.map((n) => `<th>${n}</th>`).join('') + '</tr>';
+  LEGS.forEach((leg, i) => {
+    h += `<tr><th>${leg}</th>`;
+    for (let k = 0; k < 3; k++) {
+      const p = j.pos && j.pos[3 * i + k], v = j.vel && j.vel[3 * i + k];
+      h += `<td>${p != null ? deg(p) + '°' : '-'}<br><span class="muted">${v != null ? v.toFixed(2) : '-'}</span></td>`;
+    }
+    h += '</tr>';
+  });
+  $('t-joint').innerHTML = h;
+  h = '<tr><th></th>' + JNT.map((n) => `<th>${n}</th>`).join('') + '</tr>';
+  LEGS.forEach((leg, i) => {
+    h += `<tr><th>${leg}</th>`;
+    for (let k = 0; k < 3; k++) {
+      const m = d.motor_temp && d.motor_temp[3 * i + k], r = d.driver_temp && d.driver_temp[3 * i + k];
+      h += `<td class="${tcls(Math.max(m ?? -1, r ?? -1))}">${m ?? '-'} / ${r ?? '-'}</td>`;
+    }
+    h += '</tr>';
+  });
+  $('t-temp').innerHTML = h;
+  const rpy = d.imu_rpy, mv = d.max_vel;
+  const info = [
+    ['펌웨어', d.firmware || '-'],
+    ['동작 상태 (이전)', `${MOTION[st.motion_state] ?? st.motion_state ?? '-'} (${MOTION[d.last_motion_state] ?? d.last_motion_state ?? '-'})`],
+    ['보행 (세부)', `${GAIT[d.gait] ?? d.gait ?? '-'} (${d.sub_gait ?? '-'})`],
+    ['IMU 자세', rpy ? `roll ${deg(rpy[0])}° · pitch ${deg(rpy[1])}° · yaw ${wrapDeg(rpy[2])}°` : '-'],
+    ['로봇 최대 속도', mv ? `${mv[0]} / ${mv[1]} m/s · ${mv[2]} rad/s${mv.every((x) => x === 0) ? ' (잠김)' : ''}` : '-'],
+    ['배터리', st.battery != null ? `${st.battery}% · ${st.battery_current != null ? st.battery_current.toFixed(2) + ' A' : '-'}${st.charging ? ' (충전 중)' : ''}` : '-'],
+  ];
+  $('d-info').innerHTML = info.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+}
+
+function chart(id, col, color, fixed) {
+  const c = $(id), x = c.getContext('2d'), r = c.getBoundingClientRect();
+  if (c.width !== Math.round(r.width) || c.height !== Math.round(r.height)) { c.width = r.width; c.height = r.height; }
+  x.clearRect(0, 0, c.width, c.height);
+  const pts = HIST.filter((row) => row[col] != null);
+  x.fillStyle = '#9ca3af'; x.font = '11px sans-serif';
+  if (pts.length < 2) { x.fillText('데이터 수집 중…', 8, 18); return; }
+  const t0 = pts[0][0], t1 = pts[pts.length - 1][0];
+  let lo = Math.min(...pts.map((p) => p[col])), hi = Math.max(...pts.map((p) => p[col]));
+  if (fixed) { lo = Math.min(lo, fixed[0]); hi = Math.max(hi, fixed[1]); }
+  if (hi - lo < 1e-6) { hi += 1; lo -= 1; }
+  const L = 34, R = 6, T = 8, B = 16, W = c.width - L - R, H = c.height - T - B;
+  const X = (t) => L + (t1 > t0 ? (t - t0) / (t1 - t0) : 1) * W, Y = (v) => T + (1 - (v - lo) / (hi - lo)) * H;
+  x.strokeStyle = '#e5e7eb'; x.lineWidth = 1; x.beginPath();
+  for (let i = 0; i <= 2; i++) { const v = lo + (hi - lo) * i / 2; x.moveTo(L, Y(v)); x.lineTo(L + W, Y(v)); x.fillText(v.toFixed(Math.abs(hi - lo) < 5 ? 1 : 0), 2, Y(v) + 4); }
+  x.stroke();
+  x.fillText(`${Math.round((t1 - t0) / 60)}분`, L + W - 24, c.height - 3);
+  x.strokeStyle = color; x.lineWidth = 2; x.beginPath();
+  pts.forEach((p, i) => (i ? x.lineTo(X(p[0]), Y(p[col])) : x.moveTo(X(p[0]), Y(p[col]))));
+  x.stroke();
+  const last = pts[pts.length - 1][col];
+  x.fillStyle = color; x.font = 'bold 12px sans-serif'; x.fillText(String(Math.round(last * 100) / 100), L + 4, T + 12);
+}
+function drawCharts() {
+  chart('c-batt', 1, '#2563eb', [0, 100]);
+  chart('c-cur', 2, '#7c3aed');
+  chart('c-mt', 3, '#dc2626', [20, TEMP_HOT]);
+  chart('c-dt', 4, '#d97706', [20, TEMP_HOT]);
+}
+
+// ---------------- 시스템 탭 ----------------
+const TEMP_NAME = { k10temp: 'CPU', amdgpu: 'GPU', nvme: 'SSD', mt7921_phy0: 'WiFi' };
+function bar(label, pct, text) {
+  const cls = pct >= 90 ? 'bad' : pct >= 75 ? 'warn' : '';
+  return `<div class="bar">${label} <b>${text}</b><div class="track"><div class="fill ${cls}" style="width:${Math.min(100, pct)}%"></div></div></div>`;
+}
+function renderSys() {
+  if (!SYS) return;
+  if (SYS.error) { $('sys-info').innerHTML = `<dt>오류</dt><dd>${SYS.error}</dd>`; return; }
+  $('sys-info').innerHTML = [['호스트', SYS.host], ['시각', SYS.time], ['가동 시간', `${SYS.uptime_h} 시간`],
+    ['부하 (1/5/15분)', SYS.load.join(' / ') + ` (코어 ${SYS.cpu_count})`]].map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+  $('sys-bars').innerHTML = bar('CPU', SYS.cpu_percent, `${SYS.cpu_percent}%`)
+    + bar('메모리', SYS.memory.percent, `${SYS.memory.used_gb} / ${SYS.memory.total_gb} GB`)
+    + bar('디스크', SYS.disk.percent, `${SYS.disk.used_gb} / ${SYS.disk.total_gb} GB`);
+  $('sys-temps').innerHTML = Object.entries(SYS.temps).map(([k, v]) => `<dt>${TEMP_NAME[k] || k}</dt><dd class="${v >= 85 ? 'bad-t' : ''}">${v} ℃</dd>`).join('');
+  $('sys-nics').innerHTML = '<tr><th>포트</th><th>용도</th><th>링크</th><th>주소</th></tr>' + SYS.nics.map((n) =>
+    `<tr><td>${n.nic}</td><td>${n.role}</td><td class="${n.link ? 'ok-t' : 'bad-t'}">${n.link ? '연결' : '없음'}</td><td>${n.addr || '-'}</td></tr>`).join('');
+  $('sys-svc').innerHTML = Object.entries(SYS.services).map(([k, v]) => `<dt>${k}</dt><dd class="${v === 'active' ? 'ok-t' : 'bad-t'}">${v}</dd>`).join('');
+  $('sys-nodes').innerHTML = (SYS.ros_nodes || []).map((n) => `<li>${n}</li>`).join('');
+}
+window.addEventListener('resize', () => { if (view_ === 'diag') drawCharts(); });
+
 drawJoy();
 connect();
-setInterval(drawMap, 500);
+setInterval(() => { if (view_ === 'ctrl') drawMap(); }, 500);

@@ -5,6 +5,7 @@ Motion 이탈, /cmd_vel 타임아웃, 속도 제한, 종료 시 앉기.
 실행: cd bpx_ws && colcon test --packages-select bpx_ros --event-handlers console_direct+
   또는 python3 -m pytest bpx_ws/src/bpx_ros/test -q
 """
+import json
 import math
 
 import pytest
@@ -187,6 +188,33 @@ def test_leaving_motion_state_stops_streaming(node, clock):
     node.cmd_cb(_twist(0.3))
     node.stream()
     assert "setVelocity" not in node.m.names()
+
+
+# ---------------------------------------------------------------- 보행 전환 / 진단
+def test_gait_only_when_ready(node, clock):
+    run(node, clock, 0.2)
+    ok, msg = node.request("run")
+    assert not ok and "ready" in msg
+    make_ready(node, clock)
+    assert node.request("run")[0] and node.m.getCurrentGait() == 8
+    assert node.request("walk")[0] and node.m.getCurrentGait() == 0
+
+
+def test_gait_rejected_read_only(node, clock):
+    make_ready(node, clock)
+    node.set_motion(False)
+    assert not node.request("run")[0]
+    assert node.m.getCurrentGait() == 0
+
+
+def test_diag_payload(node, clock):
+    got = []
+    node.diag_pub.publish = lambda msg: got.append(json.loads(msg.data))
+    run(node, clock, 0.2)
+    node.publish_diag()
+    d = got[-1]
+    assert len(d["motor_temp"]) == 12 and len(d["driver_temp"]) == 12 and len(d["imu_rpy"]) == 3
+    assert d["max_vel"] == [1.5, 0.5, 2.0] and d["firmware"].startswith("1.0.14")
 
 
 # ---------------------------------------------------------------- 충전 중

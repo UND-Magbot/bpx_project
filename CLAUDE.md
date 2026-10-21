@@ -44,7 +44,10 @@ MirrorMe(mirrormetech.com) **BPX 4족로봇**을 로봇에 올린 **미니PC**(U
   - 조이스틱은 누르는 동안만 /cmd_vel 송신, 놓으면 0 한 번 (Nav2 명령을 덮지 않음). 0.3 s 끊기거나 화면이 닫히면 서버가 0. 속도 상한 서버에서도 적용
   - 조종 모드를 끄면 브리지가 속도 0 + 플래그 해제 (서 있던 로봇은 펌웨어가 세워 둠 → 끄기 전에 앉힐 것)
   - uvicorn 은 `ws='wsproto'` 필수 (Ubuntu 22.04 websockets 9.1 이 Python 3.10 과 호환 안 됨)
-  - 자동 실행 서비스가 `web:=true` 로 띄움. fake 시험: lidar_ws/webtest/scenario.py (10항목)
+  - 탭: 조종(상태·동작·보행 걷기/달리기·지도·조이스틱·게임패드) / 진단(관절 12·모터/드라이버 온도·IMU·30분 추이) / 시스템(CPU·메모리·온도·디스크·포트 링크·ROS 노드·브리지 재시작)
+  - 게임패드: 브라우저 Gamepad API, LB/RB 데드맨(누르는 동안만 주행), LB/RB+Y 서기, +A 앉기, B 비상 정지
+  - 보행 전환 ~/walk ~/run 은 ready 에서만. 점프·뒤집기는 노출 안 함. 브리지 /bpx/diag (1 Hz) = 온도·IMU rpy·max_vel·펌웨어
+  - 자동 실행 서비스가 `web:=true` 로 띄움. fake 시험: lidar_ws/webtest/scenario.py (10항목), gp_test.py (게임패드 4항목)
 - `scripts/bpx_cmd.py` ROS 없이 단발 동작 (check/watch/stand/sit/damping/zero, --fake)
 - `setup/` setup_minipc.sh, bpx_env.sh(ROS_DOMAIN_ID=90), net_bpx.sh(nmcli 고정 IP: eno1=로봇, enp4s0=라이다), netplan-bpx.yaml(참고용)
 - `third_party/bpx_sdk/` SDK wheel (cp310 x86_64 / aarch64)

@@ -9,19 +9,27 @@
 <body>
 <header>
   <h1>BPX 관리자</h1>
+  <nav class="tabs">
+    <button class="tab on" data-view="ctrl">조종</button>
+    <button class="tab" data-view="diag">진단</button>
+    <button class="tab" data-view="sys">시스템</button>
+  </nav>
   <span id="link" class="pill bad">서버 연결 중…</span>
   <span id="robot" class="pill">로봇 -</span>
   <span id="charging" class="pill warn" hidden>충전 중 · 동작 불가</span>
+  <span id="hot" class="pill bad" hidden>모터 과열</span>
   <label class="switch" title="켜면 동작 버튼과 조종이 로봇에 전달됩니다">
     <input type="checkbox" id="motion"><span class="slider"></span><span class="lbl">조종 모드</span>
   </label>
 </header>
 
-<main>
+<!-- ======================= 조종 ======================= -->
+<main id="view-ctrl" class="view">
   <section class="panel" id="left">
     <h2>상태</h2>
     <dl class="stats">
       <dt>동작 상태</dt><dd id="s-motion">-</dd>
+      <dt>보행 모드</dt><dd id="s-gait">-</dd>
       <dt>브리지 모드</dt><dd id="s-mode">-</dd>
       <dt>배터리</dt><dd id="s-batt">-</dd>
       <dt>모터 최고 온도</dt><dd id="s-temp">-</dd>
@@ -35,6 +43,10 @@
       <button id="b-stand" data-act="stand">일어서기</button>
       <button id="b-sit" data-act="sit">앉기</button>
       <button id="b-damp" data-act="damping" class="warn">힘 풀기</button>
+    </div>
+    <div class="btns two">
+      <button id="b-walk" data-gait="walk" title="서 있을 때만">걷기</button>
+      <button id="b-run" data-gait="run" title="서 있을 때만. 속도 상한은 그대로">달리기</button>
     </div>
     <button id="b-zero" class="wide" title="앱의 Reset Joints 와 같음. 엎드린 상태에서만">관절 영점 (Reset Joints)</button>
     <button id="estop" title="소프트웨어 힘 풀기(damping). 하드웨어 E-Stop 은 로봇 후면">비상 정지</button>
@@ -65,6 +77,57 @@
     <label class="row">속도 <input type="range" id="speed" min="10" max="100" value="50"> <span id="speed-v">50%</span></label>
     <p class="hint">키보드: W/S 전후 · A/D 회전 · Q/E 옆걸음 · 손을 떼면 즉시 정지</p>
     <div id="joy-out" class="muted">정지</div>
+
+    <h2>게임패드</h2>
+    <div id="gp-status" class="muted">게임패드 없음 (연결 후 아무 버튼이나 누르세요)</div>
+    <table class="keymap">
+      <tr><td>LB / RB (누르고 있기)</td><td>주행 허용 (떼면 정지)</td></tr>
+      <tr><td>왼쪽 스틱</td><td>전후 · 옆걸음</td></tr>
+      <tr><td>오른쪽 스틱 좌우</td><td>회전</td></tr>
+      <tr><td>LB/RB + Y / A</td><td>일어서기 / 앉기</td></tr>
+      <tr><td>B</td><td>비상 정지 (힘 풀기)</td></tr>
+    </table>
+  </section>
+</main>
+
+<!-- ======================= 진단 ======================= -->
+<main id="view-diag" class="view grid2" hidden>
+  <section class="panel">
+    <h2>관절 <span class="muted">각도(°) · 속도(rad/s)</span></h2>
+    <table class="grid" id="t-joint"></table>
+    <h2>온도 <span class="muted">모터 / 드라이버 (℃) · 60℃ 이상 주의, 70℃ 이상 위험</span></h2>
+    <table class="grid" id="t-temp"></table>
+  </section>
+  <section class="panel">
+    <h2>로봇 정보</h2>
+    <dl class="stats" id="d-info"></dl>
+    <h2>30분 추이</h2>
+    <div class="charts">
+      <div><div class="ct">배터리 (%)</div><canvas id="c-batt"></canvas></div>
+      <div><div class="ct">배터리 전류 (A, + 충전)</div><canvas id="c-cur"></canvas></div>
+      <div><div class="ct">모터 최고 온도 (℃)</div><canvas id="c-mt"></canvas></div>
+      <div><div class="ct">드라이버 최고 온도 (℃)</div><canvas id="c-dt"></canvas></div>
+    </div>
+  </section>
+</main>
+
+<!-- ======================= 시스템 ======================= -->
+<main id="view-sys" class="view grid2" hidden>
+  <section class="panel">
+    <h2>미니PC</h2>
+    <dl class="stats" id="sys-info"></dl>
+    <div id="sys-bars"></div>
+    <h2>온도</h2>
+    <dl class="stats" id="sys-temps"></dl>
+  </section>
+  <section class="panel">
+    <h2>네트워크</h2>
+    <table class="grid" id="sys-nics"></table>
+    <h2>서비스 · ROS 노드</h2>
+    <dl class="stats" id="sys-svc"></dl>
+    <ul id="sys-nodes" class="nodes"></ul>
+    <button id="b-restart" class="wide warn" title="브리지·웹·Foxglove 를 다시 시작합니다">브리지 재시작</button>
+    <p class="hint">재시작하면 조종 모드가 꺼진 읽기 전용으로 다시 시작합니다. 서 있던 로봇은 앉힌 뒤 재시작합니다.</p>
   </section>
 </main>
 <script src="/static/app.js"></script>

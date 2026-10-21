@@ -6,7 +6,8 @@
 
   화면 -> 서버 (WebSocket /ws, JSON)
     {"type":"teleop","vx":..,"vy":..,"wz":..}   조이스틱 (10 Hz 이상으로 계속 보냄, 끊기면 서버가 0 을 보냄)
-    {"type":"action","name":"stand|sit|damping"}
+    {"type":"action","name":"stand|sit|damping|zero|walk|run"}
+    {"type":"restart_bridge"}                      bpx-bridge 서비스 재시작 (이 웹도 함께 재시작됨)
     {"type":"motion","enable":true|false}         조종 모드 (브리지 ~/set_motion)
     {"type":"goal","x":..,"y":..,"yaw":..} / {"type":"cancel_goal"}   Nav2 (지도 좌표계에서만)
   서버 -> 화면: {"type":"state",...} 5 Hz, {"type":"map",...} 지도가 바뀔 때, {"type":"event","text":..}
@@ -19,6 +20,7 @@ import base64
 import json
 import math
 import os
+import subprocess
 import threading
 import time
 from collections import deque
@@ -35,10 +37,12 @@ from rclpy.action import ActionClient
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
-from sensor_msgs.msg import BatteryState
+from sensor_msgs.msg import BatteryState, JointState
 from std_msgs.msg import String
 from std_srvs.srv import SetBool, Trigger
 from tf2_ros import Buffer, TransformListener
+
+from bpx_web.sysinfo import SysInfo
 
 STATIC_DIR = os.path.join(get_package_share_directory('bpx_web'), 'static')
 TELEOP_TIMEOUT_S = 0.3
@@ -79,13 +83,21 @@ class WebNode(Node):
         self.teleop_active = False
 
         self.create_subscription(String, '/bpx/status', self.status_cb, 10)
+        self.create_subscription(String, '/bpx/diag', self.diag_cb, 10)
+        self.create_subscription(JointState, '/joint_states', self.joint_cb, 10)
+        self.diag = {}
+        self.joints = {}
+        self.history = deque(maxlen=1800)       # 1 Hz x 30 분
+        self.sys = SysInfo()
+        self.sysinfo = {}
         self.create_subscription(BatteryState, '/battery_state', self.batt_cb, 10)
         self.create_subscription(Odometry, p('odom_topic', '/odom/mc_odom').value, self.odom_cb, 10)
         latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
                              reliability=ReliabilityPolicy.RELIABLE)
         self.create_subscription(OccupancyGrid, '/map', self.map_cb, latched)
         self.cmd_pub = self.create_publisher(Twist, p('cmd_topic', '/cmd_vel').value, 10)
-        self.trig = {n: self.create_client(Trigger, f'{bridge}/{n}') for n in ('stand', 'sit', 'damping', 'zero')}
+        self.trig = {n: self.create_client(Trigger, f'{bridge}/{n}')
+                     for n in ('stand', 'sit', 'damping', 'zero', 'walk', 'run')}
         self.motion_cli = self.create_client(SetBool, f'{bridge}/set_motion')
         self.nav = ActionClient(self, NavigateToPose, 'navigate_to_pose')
         self.tf = Buffer()
@@ -93,6 +105,8 @@ class WebNode(Node):
 
         self.create_timer(0.05, self.teleop_tick)
         self.create_timer(0.2, self.pose_tick)
+        self.create_timer(1.0, self.history_tick)
+        self.create_timer(2.0, self.sys_tick)
 
     # ---------------- 구독 ----------------
     def status_cb(self, m):
@@ -106,6 +120,46 @@ class WebNode(Node):
         for k, label in (('connected', '로봇 연결'), ('mode', '브리지 모드'), ('allow_motion', '조종 모드')):
             if prev and prev.get(k) != st.get(k):
                 self.event(f"{label}: {prev.get(k)} → {st.get(k)}")
+
+    def diag_cb(self, m):
+        try:
+            d = json.loads(m.data)
+        except ValueError:
+            return
+        with self.lock:
+            self.diag = dict(d, _t=time.time())
+
+    def joint_cb(self, m):
+        now = time.time()
+        if now - self.joints.get('_t', 0) < 0.2:      # 50 Hz -> 5 Hz
+            return
+        with self.lock:
+            self.joints = {'name': list(m.name), 'pos': [round(p, 3) for p in m.position],
+                           'vel': [round(v, 3) for v in m.velocity], '_t': now}
+
+    def history_tick(self):
+        with self.lock:
+            st, d = self.status, self.diag
+            if not st.get('connected'):
+                return
+            mt, dt = d.get('motor_temp') or [], d.get('driver_temp') or []
+            self.history.append([round(time.time()), st.get('battery'), st.get('battery_current'),
+                                 max(mt) if mt else None, max(dt) if dt else None])
+
+    def sys_tick(self):
+        try:
+            info = self.sys.collect()
+        except Exception as e:
+            info = {'error': str(e)}
+        info['ros_nodes'] = sorted(f"{ns.rstrip('/')}/{n}" for n, ns in self.get_node_names_and_namespaces())
+        with self.lock:
+            self.sysinfo = info
+
+    def restart_bridge(self):
+        self.event('브리지 재시작 요청 (관리 화면도 잠시 끊겼다가 다시 연결됨)', True)
+        # 이 웹 서버도 같은 서비스 안에서 돌기 때문에 분리된 프로세스로 재시작을 건다
+        subprocess.Popen(['sudo', '-n', 'systemctl', 'restart', 'bpx-bridge'], start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     def batt_cb(self, m):
         with self.lock:
@@ -173,7 +227,8 @@ class WebNode(Node):
 
     async def action(self, name):
         return await self.call(self.trig[name], Trigger.Request(),
-                               {'stand': '일어서기', 'sit': '앉기', 'damping': '힘 풀기', 'zero': '관절 영점'}[name])
+                               {'stand': '일어서기', 'sit': '앉기', 'damping': '힘 풀기', 'zero': '관절 영점',
+                                'walk': '걷기', 'run': '달리기'}[name])
 
     async def set_motion(self, enable):
         self.set_teleop(0, 0, 0)
@@ -240,6 +295,8 @@ class WebNode(Node):
                 'teleop_active': self.teleop_active, 'max_v': self.max_v,
                 'map_version': self.map_version,
                 'events': list(self.events)[-15:],
+                'diag': {k: v for k, v in self.diag.items() if k != '_t'},
+                'joints': {k: v for k, v in self.joints.items() if k != '_t'},
             }
 
     def map_payload(self):
@@ -285,9 +342,10 @@ def make_app(node: WebNode) -> FastAPI:
         await sock.accept()
         node.event('관리 화면 접속')
         sent_map = -1
+        tick = 0
 
         async def sender():
-            nonlocal sent_map
+            nonlocal sent_map, tick
             while True:
                 st = node.state()
                 if st['map_version'] != sent_map:
@@ -296,6 +354,15 @@ def make_app(node: WebNode) -> FastAPI:
                         await sock.send_text(json.dumps(mp))
                     sent_map = st['map_version']
                 await sock.send_text(json.dumps(st))
+                tick += 1
+                if tick % 10 == 1:                    # 2 s: 시스템 상태
+                    with node.lock:
+                        info = dict(node.sysinfo)
+                    await sock.send_text(json.dumps({'type': 'system', **info}))
+                if tick % 25 == 1:                    # 5 s: 30 분 추이
+                    with node.lock:
+                        hist = list(node.history)
+                    await sock.send_text(json.dumps({'type': 'history', 'rows': hist}))
                 await asyncio.sleep(0.2)
 
         task = asyncio.ensure_future(sender())
@@ -305,7 +372,9 @@ def make_app(node: WebNode) -> FastAPI:
                 kind = msg.get('type')
                 if kind == 'teleop':
                     node.set_teleop(msg.get('vx', 0), msg.get('vy', 0), msg.get('wz', 0))
-                elif kind == 'action' and msg.get('name') in ('stand', 'sit', 'damping', 'zero'):
+                elif kind == 'restart_bridge':
+                    node.restart_bridge()
+                elif kind == 'action' and msg.get('name') in ('stand', 'sit', 'damping', 'zero', 'walk', 'run'):
                     await node.action(msg['name'])
                 elif kind == 'motion':
                     await node.set_motion(msg.get('enable', False))

@@ -104,6 +104,8 @@ class BpxBridge(Node):
         self.imu_pub = self.create_publisher(Imu, "/imu/data", qos_profile_sensor_data)
         self.batt_pub = self.create_publisher(BatteryState, "/battery_state", 10)
         self.status_pub = self.create_publisher(String, "/bpx/status", 10)
+        self.diag_pub = self.create_publisher(String, "/bpx/diag", 10)   # 관리자 웹 진단 화면 (1 Hz)
+        self.firmware = None
         self.tf_br = TransformBroadcaster(self) if self.publish_tf else None
 
         # 구독 / 서비스
@@ -113,6 +115,8 @@ class BpxBridge(Node):
         self.create_service(Trigger, "~/sit", lambda rq, rs: self.srv(rs, "sit"))
         self.create_service(Trigger, "~/damping", lambda rq, rs: self.srv(rs, "damping"))
         self.create_service(Trigger, "~/zero", lambda rq, rs: self.srv(rs, "zero"))   # 관절 영점
+        self.create_service(Trigger, "~/walk", lambda rq, rs: self.srv(rs, "walk"))   # 보행: 걷기
+        self.create_service(Trigger, "~/run", lambda rq, rs: self.srv(rs, "run"))     # 보행: 달리기
         self.create_service(SetBool, "~/set_motion", self.set_motion_cb)
 
         # 타이머 (단일 스레드 executor -> SDK 호출이 겹치지 않음)
@@ -121,6 +125,7 @@ class BpxBridge(Node):
         self.create_timer(0.1, self.supervise)
         self.status_tick = 0
         self.create_timer(0.2, self.publish_slow)    # /bpx/status 5 Hz (관리자 웹 반응), /battery_state 는 1 Hz
+        self.create_timer(1.0, self.publish_diag)
         self.get_logger().info(f"구독: {cmd_topic}  발행: {odom_topic}, /joint_states, /imu/data")
 
     # ---------------- 명령 입력 ----------------
@@ -163,12 +168,19 @@ class BpxBridge(Node):
         return res
 
     def request(self, what):
-        if what not in ("stand", "sit", "damping", "zero"):
-            return False, f"알 수 없는 명령 '{what}' (stand|sit|damping|zero)"
+        if what not in ("stand", "sit", "damping", "zero", "walk", "run"):
+            return False, f"알 수 없는 명령 '{what}' (stand|sit|damping|zero|walk|run)"
         if not self.allow_motion:
             return False, "allow_motion=false (읽기 전용) -> 명령 거부"
         if not self.connected:
             return False, "로봇 미연결"
+        if what in ("walk", "run"):
+            # 보행 전환은 서서 속도 명령을 받는 중(ready)에만. 점프·뒤집기 등은 위험해서 노출하지 않는다
+            if self.mode != "ready":
+                return False, f"서 있을 때(ready)만 보행 전환 가능 (mode={self.mode})"
+            (self.m.setWalk if what == "walk" else self.m.setRunning)()
+            self.get_logger().warn(f"보행 전환 요청: {'걷기' if what == 'walk' else '달리기'}")
+            return True, f"{'걷기' if what == 'walk' else '달리기'} 전환 요청"
         if what == "zero":
             # 관절 영점 (앱 Reset Joints 와 같음). 네 다리 발·정강이·무릎이 바닥에 닿은 엎드림에서만
             if self.motion_state != MS_LYING or self.mode != "idle":
@@ -230,6 +242,8 @@ class BpxBridge(Node):
             self.get_logger().info("로봇 연결됨")
             try:
                 ver = getattr(self.m, "getRobotVersion", lambda: None)()
+                if ver:
+                    self.firmware = ".".join(str(v) for v in ver[:3]) + (f" ({ver[4]})" if len(ver) > 4 else "")
                 self.get_logger().info(
                     f"로봇 정보: SN={self.m.getRobotSerialNumber()} model={self.m.getRobotModel()} "
                     f"firmware={ver} sdk={getattr(self.m, '__version__', '?')}")
@@ -389,6 +403,32 @@ class BpxBridge(Node):
             if finite(a, 3):
                 imu.linear_acceleration.x, imu.linear_acceleration.y, imu.linear_acceleration.z = (float(x) for x in a[:3])
             self.imu_pub.publish(imu)
+
+    def publish_diag(self):
+        """관리자 웹 진단 화면용 (1 Hz). SDK 상태 그룹 중 온도는 1 Hz 상한."""
+        if not self.connected:
+            return
+        m, d = self.m, {"firmware": self.firmware}
+
+        def get(name, n=None):
+            try:
+                v = getattr(m, name)()
+            except Exception:
+                return None
+            if v is None:
+                return None
+            if n is None:
+                return v
+            return [round(float(x), 3) for x in v[:n]] if finite(v, n) else None
+
+        d["motor_temp"] = get("getMotorTemperature", 12)
+        d["driver_temp"] = get("getDriverTemperature", 12)
+        d["imu_rpy"] = get("getImuRpy", 3)
+        d["max_vel"] = get("getMaxVelocity", 3)
+        d["gait"], d["sub_gait"] = get("getCurrentGait"), get("getSubGait")
+        d["last_motion_state"], d["last_gait"] = get("getLastMotionState"), get("getLastGait")
+        d["battery_current"] = self.battery_current
+        self.diag_pub.publish(String(data=json.dumps(d)))
 
     def publish_slow(self):
         self.status_tick += 1
