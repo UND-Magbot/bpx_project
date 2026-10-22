@@ -35,7 +35,7 @@ function connect() {
     else if (m.type === 'system') { SYS = m; if (view_ === 'sys') renderSys(); }
     else if (m.type === 'maps') { MAPS = m.maps; if (view_ === 'maps') renderMaps(); }
     else if (m.type === 'mapping') { onMapping(m); }
-    else if (m.type === 'battery') { BAT = m; if (view_ === 'check') drawBat(); }
+    else if (m.type === 'battery') { BAT = m; if (view_ === 'check') drawBat(); if (S) renderBatt(S.status || {}, S.bridge_alive && S.status.connected); }
   };
 }
 const send = (o) => ws && ws.readyState === 1 && ws.send(JSON.stringify(o));
@@ -52,9 +52,7 @@ function render() {
   const mt = S && S.diag && S.diag.motor_temp;
   $('hot').hidden = !(conn && mt && Math.max(...mt) >= TEMP_HOT);
   $('s-mode').textContent = alive ? (MODE[st.mode] ?? st.mode) : '-';
-  const cur = st.battery_current != null ? ` · ${st.battery_current > 0 ? '+' : ''}${st.battery_current.toFixed(2)} A` : '';
-  $('s-batt').textContent = st.battery != null ? `${st.battery}%${cur}${st.charging ? ' (충전 중)' : ''}` : '-';
-  $('charging').hidden = !(conn && st.charging);
+  renderBatt(st, conn);
   $('s-temp').textContent = st.motor_temp_max != null ? `${st.motor_temp_max} ℃` : '-';
   const o = S && S.odom;
   $('s-vel').textContent = o && o.vx != null ? `${o.vx} / ${o.vy} m/s · ${o.wz} rad/s` : '-';
@@ -87,6 +85,35 @@ function render() {
     ev.appendChild(li);
   }
   drawMap();
+}
+
+// ---------------- 배터리 게이지 (상단 바 · 조종 탭) ----------------
+const fmtMin = (m) => (m >= 60 ? `${Math.floor(m / 60)}시간 ${m % 60}분` : `${m}분`);
+function renderBatt(st, conn) {
+  const pct = conn ? st.battery : null, chg = conn && st.charging;
+  const lvl = pct == null ? '' : pct < 20 ? 'low' : pct < 50 ? 'mid' : '';
+  const box = $('batt'), fill = $('batt-fill');
+  box.className = 'batt' + (pct == null ? ' off' : '') + (lvl === 'low' && !chg ? ' low' : '') + (chg ? ' charging' : '');
+  fill.style.width = `${pct == null ? 0 : Math.max(3, pct)}%`;
+  fill.className = 'batt-fill ' + lvl + (chg ? ' chg' : '');
+  $('batt-pct').textContent = pct == null ? '-' : `${pct}%`;
+  $('batt-bolt').toggleAttribute('hidden', !chg);   // SVG 는 .hidden 속성이 동작하지 않음
+  const e = (BAT && BAT.est) || {};
+  let sub = '';
+  if (pct == null) sub = '';
+  else if (chg) sub = pct >= 100 ? '완충' : e.full_in_min != null ? `충전 중 · 완충까지 ${fmtMin(e.full_in_min)}` : '충전 중';
+  else {
+    const left = e.empty_in_min != null ? e.empty_in_min : e.empty_in_min_by_current;
+    sub = (lvl === 'low' ? '충전 필요 · ' : '') + (left != null ? `약 ${fmtMin(left)} 남음` : '');
+  }
+  $('batt-sub').textContent = sub;
+  const cur = st.battery_current != null ? ` · ${st.battery_current > 0 ? '+' : ''}${st.battery_current.toFixed(2)} A` : '';
+  box.title = pct == null ? '배터리 정보 없음' : `배터리 ${pct}%${cur}${chg ? ' (충전 중)' : ''}${sub ? '\n' + sub : ''}`;
+  // 조종 탭 상태 칸
+  const mf = $('s-batt-fill');
+  mf.style.width = `${pct == null ? 0 : pct}%`; mf.className = lvl;
+  $('s-batt').textContent = pct == null ? '-' : `${pct}%${chg ? ' 충전 중' : ''}${cur}`;
+  $('charging').hidden = !chg;
 }
 
 // ---------------- 동작 버튼 ----------------

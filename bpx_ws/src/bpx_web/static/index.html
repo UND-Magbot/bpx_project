@@ -19,6 +19,12 @@
   </nav>
   <span id="link" class="pill bad">서버 연결 중…</span>
   <span id="robot" class="pill">로봇 -</span>
+  <div id="batt" class="batt" title="배터리">
+    <div class="batt-body"><div class="batt-fill" id="batt-fill"></div><span class="batt-pct" id="batt-pct">-</span>
+      <svg class="batt-bolt" id="batt-bolt" viewBox="0 0 24 24" hidden><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg></div>
+    <div class="batt-cap"></div>
+    <span class="batt-sub" id="batt-sub"></span>
+  </div>
   <span id="charging" class="pill warn" hidden>충전 중 · 동작 불가</span>
   <span id="hot" class="pill bad" hidden>모터 과열</span>
   <label class="switch" title="켜면 동작 버튼과 조종이 로봇에 전달됩니다">
@@ -34,7 +40,7 @@
       <dt>동작 상태</dt><dd id="s-motion">-</dd>
       <dt>보행 모드</dt><dd id="s-gait">-</dd>
       <dt>브리지 모드</dt><dd id="s-mode">-</dd>
-      <dt>배터리</dt><dd id="s-batt">-</dd>
+      <dt>배터리</dt><dd><span class="mini-batt"><span id="s-batt-fill"></span></span> <span id="s-batt">-</span></dd>
       <dt>모터 최고 온도</dt><dd id="s-temp">-</dd>
       <dt>현재 속도</dt><dd id="s-vel">-</dd>
       <dt>위치</dt><dd id="s-pose">-</dd>
