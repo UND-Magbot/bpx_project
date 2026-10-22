@@ -77,6 +77,7 @@ MirrorMe(mirrormetech.com) **BPX 4족로봇**을 로봇에 올린 **미니PC**(U
 - 변경 후 `colcon build --symlink-install` + `colcon test --packages-select bpx_ros`(상태머신·조종권 17항목) + fake 백엔드로 먼저 확인
   - 수동 fake 시험은 `ROS_DOMAIN_ID`를 90 아닌 값으로 (서비스 브리지와 토픽 섞임 방지)
   - 비대화형 셸에서 `ros2 launch ... &` 로 띄우면 launch 가 SIGINT 무시 상태를 상속 → `kill -INT <launch>` 가 안 먹고 노드가 남음. 시험 정리는 노드 PID 에 직접 SIGINT
+- 인수인계 문서: `docs/개발문서_인수인계.md` (구조·설치·운용·시험·함정 정리, 큰 변경 시 함께 갱신)
 - 업무일지는 `docs/업무일지_YYYY-MM-DD.md`, "Noah 일일 업무 보고" 형식, "~했다" 체
 
 ## 진행 상황
