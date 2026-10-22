@@ -88,3 +88,11 @@ pre.log { background: #111827; color: #d1d5db; font-size: 11px; padding: 8px; bo
 .pvwrap { flex: 1; min-height: 260px; background: #eef0f3; border-radius: 8px; display: flex; align-items: center; justify-content: center; overflow: hidden; margin: 8px 0; }
 .pvwrap img { max-width: 100%; max-height: 100%; image-rendering: pixelated; }
 .locbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 14px; }
+.charts.one { grid-template-columns: 1fr; } .charts.one canvas { height: 120px; }
+.btns.three { grid-template-columns: repeat(3, 1fr); }
+.btns button.holding { background: var(--warn); color: #fff; border-color: var(--warn); }
+.imu-live { font-variant-numeric: tabular-nums; font-size: 15px; font-weight: 600; background: #f8fafc; border-radius: 8px; padding: 8px 10px; margin: 6px 0; }
+.steps { font-size: 14px; padding-left: 20px; margin: 6px 0; } .steps li { margin: 4px 0; color: var(--muted); }
+.steps li.now { color: var(--ink); font-weight: 700; } .steps li.done { color: var(--ok); }
+.steps li.done::after { content: " ✓"; }
+#test-table td.ok-t, #test-table td.bad-t { font-weight: 700; }

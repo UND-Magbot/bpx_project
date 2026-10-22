@@ -25,6 +25,8 @@ MirrorMe(mirrormetech.com) **BPX 4족로봇**을 로봇에 올린 **미니PC**(U
   - BPX IMU 가속도 단위 **m/s²** (|a|=9.78, Livox 의 g 와 다름). 엎드림 roll/pitch ≈ 0 → IMU z 위쪽, base_link 와 수평. IMU yaw = LegOdom yaw
   - 관절(엎드림) pitch +1.08~1.21, knee -2.70~-2.83 rad → URDF/Fake 엎드림 자세와 부호 일치
   - 배터리 전류: 충전 중 +2.38 A, 충전기 분리·엎드림 대기 -0.64 A (양수 = 충전)
+  - **충전 곡선 (2026-10-22 실측)**: 정전류 2.38 A(약 69 W), 시간당 약 40%. 18→71% 에 3.16 Ah → 100% 환산 5.97 Ah
+    (사양 5.8 Ah) → 전류 단위 A·잔량 % 정확. 0→100% 약 2.5~3 시간. 기록 ~/bpx/logs/
   - **ControlMode = None** (이 펌웨어는 미제공) → 브리지 탈취 감지는 경고만, 동작 안 함
 - 미확인: IMU x/y 축 방향(전진 시 확인), 서 있을 때 관절 영점, 토크 단위, BAT 포트 허용 전류·커넥터 규격
 - 참고 저장소: github.com/mirrormerobotics (bpx_sdk_open, BPX, BPX-Pro, mirrorme_rl_train, robot-mirrorme-bpx, primitive-mirrorme-bpx-quadruped-rbnx, bpx-mindplus-extension)
@@ -54,6 +56,9 @@ MirrorMe(mirrormetech.com) **BPX 4족로봇**을 로봇에 올린 **미니PC**(U
   - 시험 bag 위치추정은 base 프레임을 bag_base_link 로 (실행 중인 브리지의 odom->base_link 와 TF 부모 충돌 방지)
   - 큰 2D 지도는 300만 칸 이하로 줄여서 화면에 보냄 (장애물 > 빈 공간 > 미확인 우선 풀링)
   - 보행 전환 ~/walk ~/run 은 ready 에서만. 점프·뒤집기는 노출 안 함. 브리지 /bpx/diag (1 Hz) = 온도·IMU rpy·max_vel·펌웨어
+  - **점검 탭**: 배터리 장기 기록(~/bpx/logs/battery_YYYYMMDD.csv, 10 s, 웹 재시작해도 이어짐)·완충/남은 시간 추정,
+    IMU 축 점검(앞 들기 pitch<0·ax>0, 왼쪽 들기 roll>0·ay>0 자동 판정), 주행 점검(누르는 동안만 프리셋 속도, 방향·추종률·지연·전류),
+    거리 정확도(odom vs 줄자), 서기 대기 전력(30 s). fake 시험 check_scenario.py 7항목, imu_wiz.py
   - 자동 실행 서비스가 `web:=true` 로 띄움. fake 시험: lidar_ws/webtest/scenario.py (10항목), gp_test.py (게임패드 4항목)
 - `scripts/bpx_cmd.py` ROS 없이 단발 동작 (check/watch/stand/sit/damping/zero, --fake)
 - `setup/` setup_minipc.sh, bpx_env.sh(ROS_DOMAIN_ID=90), net_bpx.sh(nmcli 고정 IP: eno1=로봇, enp4s0=라이다), netplan-bpx.yaml(참고용)

@@ -5,3 +5,4 @@ __pycache__/
 *.pyc
 lidar_ws/
 maps/
+logs/

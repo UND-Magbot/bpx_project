@@ -7,15 +7,16 @@ const CM = { 0: '알 수 없음', 1: '앱/리모컨', 2: 'SDK(이 시스템)' };
 const GAIT = { 0: '걷기', 3: '두 발', 4: '뒤집기', 6: '보행 변형', 7: '자세 추종', 8: '달리기', 12: '점프' };
 const LEGS = ['앞왼(FL)', '앞오(FR)', '뒤왼(HL)', '뒤오(HR)'], JNT = ['엉덩이 roll', '엉덩이 pitch', '무릎'];
 const TEMP_WARN = 60, TEMP_HOT = 70;   // ℃ (제조사 한계 미확인 -> 보수적으로)
-let view_ = 'ctrl', HIST = [], SYS = null, MAPS = [];
+let view_ = 'ctrl', HIST = [], SYS = null, MAPS = [], BAT = null;
 
 // ---------------- 탭 ----------------
 document.querySelectorAll('.tab').forEach((t) => t.onclick = () => {
   view_ = t.dataset.view;
   document.querySelectorAll('.tab').forEach((x) => x.classList.toggle('on', x === t));
-  for (const v of ['ctrl', 'mapping', 'maps', 'diag', 'sys']) $('view-' + v).hidden = v !== view_;
+  for (const v of ['ctrl', 'mapping', 'maps', 'check', 'diag', 'sys']) $('view-' + v).hidden = v !== view_;
   if (view_ === 'ctrl') drawMap(); else if (view_ === 'diag') { renderDiag(); drawCharts(); }
-  else if (view_ === 'sys') renderSys(); else if (view_ === 'mapping') { renderMapping(); drawLive(); } else renderMaps();
+  else if (view_ === 'sys') renderSys(); else if (view_ === 'mapping') { renderMapping(); drawLive(); }
+  else if (view_ === 'check') { renderCheck(); drawBat(); } else renderMaps();
 });
 
 let ws = null, S = null, mapImg = null, mapInfo = null;
@@ -28,12 +29,13 @@ function connect() {
   ws.onclose = () => { setPill('link', '서버 끊김 · 재연결 중', 'bad'); S = null; render(); setTimeout(connect, 1500); };
   ws.onmessage = (e) => {
     const m = JSON.parse(e.data);
-    if (m.type === 'state') { S = m; render(); if (view_ === 'diag') renderDiag(); if (view_ === 'mapping') renderMapping(); if (view_ === 'maps') renderLoc(); }
+    if (m.type === 'state') { S = m; render(); if (view_ === 'diag') renderDiag(); if (view_ === 'mapping') renderMapping(); if (view_ === 'maps') renderLoc(); if (view_ === 'check') renderCheck(); }
     else if (m.type === 'map') loadMap(m);
     else if (m.type === 'history') { HIST = m.rows; if (view_ === 'diag') drawCharts(); }
     else if (m.type === 'system') { SYS = m; if (view_ === 'sys') renderSys(); }
     else if (m.type === 'maps') { MAPS = m.maps; if (view_ === 'maps') renderMaps(); }
     else if (m.type === 'mapping') { onMapping(m); }
+    else if (m.type === 'battery') { BAT = m; if (view_ === 'check') drawBat(); }
   };
 }
 const send = (o) => ws && ws.readyState === 1 && ws.send(JSON.stringify(o));
@@ -361,11 +363,11 @@ function renderDiag() {
   $('d-info').innerHTML = info.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
 }
 
-function chart(id, col, color, fixed) {
+function chart(id, col, color, fixed, rows) {
   const c = $(id), x = c.getContext('2d'), r = c.getBoundingClientRect();
   if (c.width !== Math.round(r.width) || c.height !== Math.round(r.height)) { c.width = r.width; c.height = r.height; }
   x.clearRect(0, 0, c.width, c.height);
-  const pts = HIST.filter((row) => row[col] != null);
+  const pts = (rows || HIST).filter((row) => row[col] != null);
   x.fillStyle = '#9ca3af'; x.font = '11px sans-serif';
   if (pts.length < 2) { x.fillText('데이터 수집 중…', 8, 18); return; }
   const t0 = pts[0][0], t1 = pts[pts.length - 1][0];
@@ -377,7 +379,7 @@ function chart(id, col, color, fixed) {
   x.strokeStyle = '#e5e7eb'; x.lineWidth = 1; x.beginPath();
   for (let i = 0; i <= 2; i++) { const v = lo + (hi - lo) * i / 2; x.moveTo(L, Y(v)); x.lineTo(L + W, Y(v)); x.fillText(v.toFixed(Math.abs(hi - lo) < 5 ? 1 : 0), 2, Y(v) + 4); }
   x.stroke();
-  x.fillText(`${Math.round((t1 - t0) / 60)}분`, L + W - 24, c.height - 3);
+  const span = (t1 - t0) / 60; x.fillText(span >= 120 ? `${(span / 60).toFixed(1)}시간` : `${Math.round(span)}분`, L + W - 34, c.height - 3);
   x.strokeStyle = color; x.lineWidth = 2; x.beginPath();
   pts.forEach((p, i) => (i ? x.lineTo(X(p[0]), Y(p[col])) : x.moveTo(X(p[0]), Y(p[col]))));
   x.stroke();
@@ -561,6 +563,125 @@ $('pv-del').onclick = () => { if (confirm(`지도 "${selMap}" 을(를) 삭제할
 $('loc-start').onclick = () => send({ type: 'loc_start', source: $('loc-source').value, nav: $('loc-nav').checked });
 $('loc-stop').onclick = () => send({ type: 'session_stop' });
 window.addEventListener('resize', () => { if (view_ === 'mapping') drawLive(); });
+
+// ---------------- 점검 탭 ----------------
+function drawBat() {
+  if (!BAT) return;
+  chart('cb-pct', 1, '#2563eb', [0, 100], BAT.rows);
+  chart('cb-cur', 2, '#7c3aed', [-1, 1], BAT.rows);
+  const e = BAT.est || {}, mins = (m) => (m >= 60 ? `${Math.floor(m / 60)}시간 ${m % 60}분` : `${m}분`);
+  const rows = [['현재', e.pct != null ? `${e.pct}% · ${e.current_a != null ? (e.current_a > 0 ? '+' : '') + e.current_a.toFixed(2) + ' A' : '-'} ${e.charging ? '(충전 중)' : ''}` : '-'],
+    ['전력 (추정)', e.power_w != null ? `${e.power_w} W ${e.charging ? '충전' : '소비'}` : '-'],
+    ['변화 속도', e.rate_pct_h != null ? `${e.rate_pct_h > 0 ? '+' : ''}${e.rate_pct_h} %/시간` : '기록 5분 이상 필요']];
+  if (e.full_in_min != null) rows.push(['완충까지 (추정)', mins(e.full_in_min)]);
+  if (e.empty_in_min != null) rows.push(['남은 사용 시간 (추세)', mins(e.empty_in_min)]);
+  if (e.empty_in_min_by_current != null) rows.push(['남은 사용 시간 (전류, 5.8 Ah 기준)', mins(e.empty_in_min_by_current)]);
+  $('bat-est').innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+}
+
+// IMU 점검: 앞을 들면 pitch < 0 · ax > 0, 왼쪽을 들면 roll > 0 · ay > 0 이어야 base_link 와 같은 축 (REP-103)
+const imuT = { step: null, peak: null, front: null, left: null };
+function imuTick() {
+  const m = S && S.imu; if (!m || m.roll == null) return;
+  $('imu-live').textContent = `roll ${m.roll.toFixed(1)}° · pitch ${m.pitch.toFixed(1)}° · yaw ${m.yaw.toFixed(1)}°  |  가속도 x ${m.ax} · y ${m.ay} · z ${m.az} m/s²`;
+  if (!imuT.step || imuT.step === 'done') return;
+  const key = imuT.step === 'front' ? 'pitch' : 'roll';
+  if (Math.abs(m[key]) > 4 && (!imuT.peak || Math.abs(m[key]) > Math.abs(imuT.peak[key]))) imuT.peak = { ...m };
+  if (imuT.peak && Math.abs(m[key]) < 1.5) {          // 내려놓으면 다음 단계
+    imuT[imuT.step] = imuT.peak; imuT.peak = null;
+    imuT.step = imuT.step === 'front' ? 'left' : 'done';
+    if (imuT.step === 'done') imuResult();
+  }
+  imuSteps();
+}
+function imuSteps() {
+  document.querySelectorAll('#imu-steps li').forEach((li) => {
+    li.classList.toggle('done', !!imuT[li.dataset.k]); li.classList.toggle('now', imuT.step === li.dataset.k);
+  });
+}
+function imuResult() {
+  const f = imuT.front, l = imuT.left;
+  const c = [['앞 들기 → pitch 음수', f.pitch < 0, `${f.pitch.toFixed(1)}°`], ['앞 들기 → 가속도 x 양수', f.ax > 0, f.ax],
+             ['왼쪽 들기 → roll 양수', l.roll > 0, `${l.roll.toFixed(1)}°`], ['왼쪽 들기 → 가속도 y 양수', l.ay > 0, l.ay]];
+  const all = c.every((x) => x[1]);
+  $('imu-result').innerHTML = c.map(([k, ok, v]) => `<span class="${ok ? 'ok-t' : 'bad-t'}">${ok ? '✓' : '✗'}</span> ${k} (${v})`).join('<br>')
+    + `<br><b class="${all ? 'ok-t' : 'bad-t'}">${all ? '결과: IMU 축이 로봇 몸체(base_link)와 같습니다. 그대로 사용 가능.' : '결과: 축이 다릅니다. imu_frame 회전 설정이 필요합니다 (결과를 알려주세요).'}</b>`;
+}
+$('imu-start').onclick = () => { Object.assign(imuT, { step: 'front', peak: null, front: null, left: null }); $('imu-result').textContent = '앞쪽부터 들어 올리세요…'; imuSteps(); };
+$('imu-reset').onclick = () => { Object.assign(imuT, { step: null, peak: null, front: null, left: null }); $('imu-result').textContent = ''; imuSteps(); };
+
+// 주행 점검: 누르고 있는 동안만 프리셋 속도를 보내고, 놓으면 0 + 분석
+const PRESET = { fwd: [0.2, 0, 0], back: [-0.15, 0, 0], left: [0, 0.15, 0], right: [0, -0.15, 0], ccw: [0, 0, 0.5], cw: [0, 0, -0.5] };
+let hold = null;
+function canDrive() { const st = (S && S.status) || {}; return canControl && st.mode === 'ready'; }
+function holdStart(btn, v, testName) {
+  if (hold || !canDrive()) return;
+  if (testName) send({ type: 'test_begin', name: testName });
+  btn.classList.add('holding');
+  hold = { btn, testName, timer: setInterval(() => {
+    if (!canDrive()) { holdEnd(); return; }
+    send({ type: 'teleop', vx: v[0], vy: v[1], wz: v[2] });
+  }, 100) };
+}
+function holdEnd() {
+  if (!hold) return;
+  clearInterval(hold.timer); hold.btn.classList.remove('holding');
+  send({ type: 'teleop', vx: 0, vy: 0, wz: 0 });
+  if (hold.testName) setTimeout(() => send({ type: 'test_end' }), 600);   // 멈추는 구간까지 포함해서 분석
+  hold = null;
+}
+document.querySelectorAll('[data-test]').forEach((b) => {
+  b.addEventListener('pointerdown', (e) => { b.setPointerCapture(e.pointerId); holdStart(b, PRESET[b.dataset.test], b.dataset.test); });
+  for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) b.addEventListener(ev, holdEnd);
+});
+window.addEventListener('blur', holdEnd);
+$('dist-start').onclick = () => send({ type: 'test_begin', name: 'distance' });
+$('dist-go').addEventListener('pointerdown', (e) => { $('dist-go').setPointerCapture(e.pointerId); holdStart($('dist-go'), [0.2, 0, 0], null); });
+for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) $('dist-go').addEventListener(ev, holdEnd);
+$('dist-end').onclick = () => {
+  const a = parseFloat($('dist-actual').value);
+  if (!(a > 0)) { alert('줄자로 잰 실제 이동 거리(m)를 넣으세요'); return; }
+  send({ type: 'test_end', actual_m: a });
+};
+$('dist-cancel').onclick = () => send({ type: 'test_cancel' });
+let pwTimer = null;
+$('pw-start').onclick = () => {
+  if (!(S && S.status && S.status.motion_state === 6)) { alert('로봇이 서 있는 상태에서 측정하세요'); return; }
+  send({ type: 'test_begin', name: 'power_idle' });
+  let left = 30; $('pw-status').textContent = `측정 중… ${left}초`;
+  pwTimer = setInterval(() => {
+    left -= 1; $('pw-status').textContent = `측정 중… ${left}초 (로봇을 건드리지 마세요)`;
+    if (left <= 0) { clearInterval(pwTimer); pwTimer = null; send({ type: 'test_end' }); $('pw-status').textContent = '완료 → 아래 결과 표'; }
+  }, 1000);
+};
+
+function renderCheck() {
+  imuTick();
+  const ready = canDrive(), act = S && S.test_active;
+  document.querySelectorAll('[data-test]').forEach((b) => { b.disabled = !ready || (act && !b.classList.contains('holding')); });
+  $('dist-go').disabled = !(ready && act === 'distance');
+  $('dist-start').disabled = !!act; $('dist-end').disabled = $('dist-cancel').disabled = act !== 'distance';
+  $('pw-start').disabled = !!act || !(S && S.status && S.status.motion_state === 6);
+  $('drive-hint').textContent = ready ? '준비됨: 버튼을 누르고 있는 동안만 움직입니다 (2~3초).' : '조종 모드를 켜고 로봇을 일으킨 뒤 사용하세요. 주변 2m 를 비워 두세요.';
+  $('dist-status').textContent = act === 'distance' ? '측정 중: "직진" 을 누르고 있거나 조종 탭에서 움직인 뒤, 실제 거리를 넣고 "측정 끝"' : '';
+  const R = (S && S.test_results) || [];
+  const fmt = (v, d = 2) => (v == null ? '-' : typeof v === 'number' ? v.toFixed(d) : v);
+  $('test-table').innerHTML = '<tr><th>시각</th><th>점검</th><th>명령</th><th>측정</th><th>비율</th><th>지연</th><th>방향</th><th>이동</th><th>전류·전력</th></tr>'
+    + R.slice().reverse().map((r) => `<tr><td>${r.time}</td><td>${r.label}</td><td>${r.want != null ? r.want : '-'}</td>`
+      + `<td>${fmt(r.measured, 3)}</td><td>${r.ratio_pct != null ? r.ratio_pct + '%' : '-'}</td><td>${r.latency_s != null ? r.latency_s + 's' : '-'}</td>`
+      + `<td class="${r.direction_ok === true ? 'ok-t' : r.direction_ok === false ? 'bad-t' : ''}">${r.direction_ok === true ? 'OK' : r.direction_ok === false ? '확인' : '-'}</td>`
+      + `<td>${r.error ? r.error : r.odom_error_pct != null ? `${r.dist_m} m (실제 ${r.actual_m}, 오차 ${r.odom_error_pct}%)` : r.dist_m != null ? `앞 ${r.fwd_m} · 좌 ${r.left_m} m · ${r.yaw_deg}°` : '-'}</td>`
+      + `<td>${r.current_avg_a != null ? `${r.current_avg_a} A · ${r.power_w} W` : '-'}</td></tr>`).join('');
+}
+window.addEventListener('resize', () => { if (view_ === 'check') drawBat(); });
+// 화면 시험(헤드리스)용: 가짜 IMU 값을 순서대로 넣어 점검 판정을 확인
+window.bpxTest = {
+  imuFeed(seq) {
+    const real = S.imu; $('imu-start').click();
+    for (const v of seq) { S.imu = { roll: v[0], pitch: v[1], yaw: 0, ax: v[2], ay: v[3], az: 9.8 }; imuTick(); }
+    S.imu = real; return $('imu-result').innerText;
+  },
+};
 
 drawJoy();
 connect();

@@ -13,6 +13,7 @@
     <button class="tab on" data-view="ctrl">조종</button>
     <button class="tab" data-view="mapping">매핑</button>
     <button class="tab" data-view="maps">지도</button>
+    <button class="tab" data-view="check">점검</button>
     <button class="tab" data-view="diag">진단</button>
     <button class="tab" data-view="sys">시스템</button>
   </nav>
@@ -145,6 +146,50 @@
       <button id="loc-stop" class="warn">정지</button>
     </div>
     <div id="loc-status" class="hint"></div>
+  </section>
+</main>
+
+
+<!-- ======================= 점검 ======================= -->
+<main id="view-check" class="view grid2" hidden>
+  <section class="panel">
+    <h2>배터리 <span class="muted">(장기 기록 · 10초 간격 · 최근 12시간)</span></h2>
+    <dl class="stats" id="bat-est"></dl>
+    <div class="charts one">
+      <div><div class="ct">배터리 (%)</div><canvas id="cb-pct"></canvas></div>
+      <div><div class="ct">전류 (A, + 충전 / - 방전)</div><canvas id="cb-cur"></canvas></div>
+    </div>
+
+    <h2>센서(IMU) 점검 <span class="muted">로봇이 엎드린 상태에서, 모터는 쓰지 않음</span></h2>
+    <div class="imu-live" id="imu-live">-</div>
+    <ol class="steps" id="imu-steps">
+      <li data-k="front">로봇 <b>앞쪽(머리)</b> 손잡이를 10cm쯤 들어 올리세요</li>
+      <li data-k="left">내린 뒤, 로봇 <b>왼쪽</b> 옆을 10cm쯤 들어 올리세요</li>
+    </ol>
+    <div class="btns two"><button id="imu-start">점검 시작</button><button id="imu-reset">다시</button></div>
+    <div id="imu-result" class="hint"></div>
+  </section>
+
+  <section class="panel">
+    <h2>주행 점검 <span class="muted">누르고 있는 동안만 움직임 · 놓으면 정지 · 2~3초씩</span></h2>
+    <p class="hint" id="drive-hint">조종 모드를 켜고 로봇을 일으킨 뒤 사용하세요. 주변 2m 를 비워 두세요.</p>
+    <div class="btns three" id="drive-btns">
+      <button data-test="fwd">전진 0.2</button><button data-test="back">후진 0.15</button><button data-test="left">왼쪽 옆 0.15</button>
+      <button data-test="right">오른쪽 옆 0.15</button><button data-test="ccw">좌회전 0.5</button><button data-test="cw">우회전 0.5</button>
+    </div>
+
+    <h2>거리 정확도 <span class="muted">바닥에 줄자로 거리를 표시해 두세요</span></h2>
+    <div class="btns two"><button id="dist-start">측정 시작</button><button id="dist-go" title="누르고 있는 동안 0.2 m/s 직진">직진 (누르고 있기)</button></div>
+    <div class="locbar"><span>실제 이동 거리</span><input id="dist-actual" type="number" step="0.01" min="0.1" placeholder="m" style="width:90px">
+      <button id="dist-end" class="primary">측정 끝</button><button id="dist-cancel">취소</button></div>
+    <div id="dist-status" class="hint"></div>
+
+    <h2>소비 전력 <span class="muted">로봇이 서 있는 상태에서 30초 대기</span></h2>
+    <div class="btns two"><button id="pw-start">서기 대기 전력 측정 (30초)</button></div>
+    <div id="pw-status" class="hint"></div>
+
+    <h2>점검 결과</h2>
+    <table class="grid" id="test-table"></table>
   </section>
 </main>
 

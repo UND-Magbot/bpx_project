@@ -39,11 +39,13 @@ from rclpy.action import ActionClient
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
-from sensor_msgs.msg import BatteryState, JointState, PointCloud2
+from rclpy.qos import qos_profile_sensor_data
+from sensor_msgs.msg import BatteryState, Imu, JointState, PointCloud2
 from std_msgs.msg import String
 from std_srvs.srv import SetBool, Trigger
 from tf2_ros import Buffer, TransformListener
 
+from bpx_web.checks import BatteryLog, DriveTest
 from bpx_web.maps import MapStore, pool_grid
 from bpx_web.procs import SessionManager
 from bpx_web.sysinfo import SysInfo
@@ -111,6 +113,13 @@ class WebNode(Node):
         self.create_subscription(Odometry, '/Odometry', self.lio_odom_cb, 10)
         self.map_save_cli = self.create_client(Trigger, '/map_save')
         self.initpose_pub = self.create_publisher(PoseWithCovarianceStamped, '/initialpose', 10)
+        # 점검 탭
+        self.batlog = BatteryLog()
+        self._bat_tick = 0
+        self.imu = {}
+        self.test = None
+        self.test_results = []
+        self.create_subscription(Imu, '/imu/data', self.imu_cb, qos_profile_sensor_data)
         self.create_subscription(BatteryState, '/battery_state', self.batt_cb, 10)
         self.create_subscription(Odometry, p('odom_topic', '/odom/mc_odom').value, self.odom_cb, 10)
         latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
@@ -138,6 +147,8 @@ class WebNode(Node):
         with self.lock:
             prev = self.status
             self.status = dict(st, _t=time.time())
+            if self.test:
+                self.test.add_current(st.get('battery_current'))
         for k, label in (('connected', '로봇 연결'), ('mode', '브리지 모드'), ('allow_motion', '조종 모드')):
             if prev and prev.get(k) != st.get(k):
                 self.event(f"{label}: {prev.get(k)} → {st.get(k)}")
@@ -164,6 +175,12 @@ class WebNode(Node):
             if not st.get('connected'):
                 return
             mt, dt = d.get('motor_temp') or [], d.get('driver_temp') or []
+        self._bat_tick += 1
+        if self._bat_tick % 10 == 1:                     # 10 s: 배터리 장기 기록 (디스크)
+            with self.lock:
+                self.batlog.add(st.get('battery'), st.get('battery_current'), st.get('charging'),
+                                st.get('motion_state'), max(mt) if mt else None, max(dt) if dt else None)
+        with self.lock:
             self.history.append([round(time.time()), st.get('battery'), st.get('battery_current'),
                                  max(mt) if mt else None, max(dt) if dt else None])
 
@@ -187,9 +204,45 @@ class WebNode(Node):
             self.battery = {'percent': round(m.percentage * 100), 'current': round(m.current, 2)}
 
     def odom_cb(self, m):
-        t = m.twist.twist
+        t, p = m.twist.twist, m.pose.pose
         with self.lock:
             self.odom = {'vx': round(t.linear.x, 2), 'vy': round(t.linear.y, 2), 'wz': round(t.angular.z, 2)}
+            if self.test:
+                self.test.add_odom(p.position.x, p.position.y, yaw_of(p.orientation),
+                                   t.linear.x, t.linear.y, t.angular.z)
+
+    def imu_cb(self, m):
+        now = time.time()
+        if now - self.imu.get('_t', 0) < 0.1:          # 10 Hz
+            return
+        q, a = m.orientation, m.linear_acceleration
+        roll = math.degrees(math.atan2(2 * (q.w * q.x + q.y * q.z), 1 - 2 * (q.x * q.x + q.y * q.y)))
+        pitch = math.degrees(math.asin(max(-1.0, min(1.0, 2 * (q.w * q.y - q.z * q.x)))))
+        with self.lock:
+            self.imu = {'roll': round(roll, 2), 'pitch': round(pitch, 2), 'yaw': round(math.degrees(yaw_of(q)), 1),
+                        'ax': round(a.x, 2), 'ay': round(a.y, 2), 'az': round(a.z, 2), '_t': now}
+
+    # ---------------- 점검 (주행 점검 / 거리 / 전력) ----------------
+    def test_begin(self, name):
+        if name not in DriveTest.PRESETS:
+            raise ValueError(f"알 수 없는 점검: {name}")
+        with self.lock:
+            self.test = DriveTest(name)
+        return self.event(f"점검 시작: {DriveTest.PRESETS[name][0]}")
+
+    def test_end(self, actual_m=None):
+        with self.lock:
+            t, self.test = self.test, None
+        if not t:
+            return None
+        res = t.analyze(float(actual_m) if actual_m else None)
+        res['time'] = time.strftime('%H:%M:%S')
+        with self.lock:
+            self.test_results = (self.test_results + [res])[-30:]
+        ok = res.get('direction_ok')
+        self.event(f"점검 결과: {res['label']} " + (res.get('error') or (
+            ('방향 OK' if ok else '방향 확인 필요') if ok is not None else f"{res.get('dist_m', 0)} m")), ok if ok is not None else True)
+        return res
 
     def map_cb(self, m):
         with self.lock:
@@ -225,6 +278,8 @@ class WebNode(Node):
         with self.lock:
             self.teleop = (clamp(vx, self.max_v[0]), clamp(vy, self.max_v[1]), clamp(wz, self.max_v[2]))
             self.teleop_t = time.monotonic()
+            if self.test and any(abs(c) > 1e-3 for c in self.teleop):
+                self.test.mark_cmd()
 
     def teleop_tick(self):
         with self.lock:
@@ -324,6 +379,9 @@ class WebNode(Node):
                 'joints': {k: v for k, v in self.joints.items() if k != '_t'},
                 'session': self.sessions.status(),
                 'active_map': self.maps.active(),
+                'imu': {k: v for k, v in self.imu.items() if k != '_t'},
+                'test_active': self.test.name if self.test else None,
+                'test_results': self.test_results[-12:],
             }
 
     def map_payload(self):
@@ -507,7 +565,8 @@ class WebNode(Node):
 
 
 MAP_COMMANDS = ('mapping_start', 'mapping_save', 'mapping_cancel', 'loc_start', 'session_stop',
-                'map_activate', 'map_rename', 'map_delete', 'map_process', 'init_pose')
+                'map_activate', 'map_rename', 'map_delete', 'map_process', 'init_pose',
+                'test_begin', 'test_end', 'test_cancel')
 
 
 async def run_map_command(node: WebNode, kind, msg):
@@ -543,6 +602,14 @@ async def run_map_command(node: WebNode, kind, msg):
             node.event(f"지도 다시 처리: {msg['name']}")
         elif kind == 'init_pose':
             node.init_pose(msg['x'], msg['y'], msg.get('yaw', 0.0))
+        elif kind == 'test_begin':
+            node.test_begin(msg.get('name', ''))
+        elif kind == 'test_end':
+            node.test_end(msg.get('actual_m'))
+        elif kind == 'test_cancel':
+            with node.lock:
+                node.test = None
+            node.event('점검 취소')
     except (ValueError, RuntimeError, KeyError, OSError) as e:
         node.event(f"{kind}: {e}", False)
 
@@ -617,6 +684,10 @@ def make_app(node: WebNode) -> FastAPI:
                         sent_cells, sent_gen = 0, node.preview_gen
                     mp, sent_cells = node.mapping_payload(sent_cells)   # 1 s: 매핑 미리보기 (새 칸만)
                     await sock.send_text(json.dumps(mp))
+                if tick % 50 == 3:                    # 10 s: 배터리 장기 기록·추정
+                    with node.lock:
+                        bp = node.batlog.payload()
+                    await sock.send_text(json.dumps(bp))
                 if tick % 25 == 1:                    # 5 s: 30 분 추이
                     with node.lock:
                         hist = list(node.history)
