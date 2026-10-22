@@ -413,3 +413,18 @@ def _twist(x=0.0, y=0.0, z=0.0):
     t = Twist()
     t.linear.x, t.linear.y, t.angular.z = x, y, z
     return t
+
+
+# ---------------------------------------------------------------- 실행 중 속도 상한 변경
+def test_runtime_speed_limits(node, clock):
+    from rclpy.parameter import Parameter
+    r = node.set_parameters([Parameter("max_vx", value=0.6)])
+    assert r[0].successful and node.max_vx == 0.6
+    make_ready(node, clock)
+    node.cmd_cb(_twist(9.0))
+    node.stream()
+    assert node.m.last("setVelocity")[1] == 0.6
+    bad = node.set_parameters([Parameter("max_vx", value=3.0)])      # SDK 상한 1.5 초과
+    assert not bad[0].successful and node.max_vx == 0.6
+    bad = node.set_parameters([Parameter("cmd_timeout", value=5.0)])
+    assert not bad[0].successful and node.cmd_timeout == 0.5

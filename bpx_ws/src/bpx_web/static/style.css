@@ -117,3 +117,6 @@ pre.log { background: #111827; color: #d1d5db; font-size: 11px; padding: 8px; bo
 .mini-batt span { position: absolute; left: 0; top: 0; bottom: 0; background: var(--ok); }
 .mini-batt span.mid { background: #eab308; } .mini-batt span.low { background: var(--bad); }
 .batt.charging .batt-pct { padding-right: 14px; }
+.setgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin: 6px 0; }
+.setgrid label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
+.setgrid input { font: inherit; font-size: 14px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink); }

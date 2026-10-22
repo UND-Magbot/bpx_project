@@ -18,6 +18,8 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, OpaqueFunction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
+
+LIDAR_POSE = ('x', 'y', 'z', 'roll', 'pitch', 'yaw')   # 라이다 장착 위치·자세 -> lidar.launch.py
 from launch_ros.actions import Node
 
 
@@ -51,7 +53,8 @@ def _session(context):
     else:
         acts.append(IncludeLaunchDescription(
             PythonLaunchDescriptionSource(os.path.join(share, 'launch', 'lidar.launch.py')),
-            launch_arguments={'lidar_ip': arg('lidar_ip'), 'xfer_format': '0'}.items()))
+            launch_arguments=dict({'lidar_ip': arg('lidar_ip'), 'xfer_format': '0'},
+                                  **{k: arg('lidar_' + k) for k in LIDAR_POSE}).items()))
     if arg('nav') == 'true':
         nav2 = os.path.join(get_package_share_directory('nav2_bringup'), 'launch', 'navigation_launch.py')
         acts.append(IncludeLaunchDescription(PythonLaunchDescriptionSource(nav2), launch_arguments={
@@ -65,6 +68,7 @@ def generate_launch_description():
         DeclareLaunchArgument('map_dir', default_value=os.path.expanduser('~/bpx/maps/map')),
         DeclareLaunchArgument('source', default_value='live', description='live | bag'),
         DeclareLaunchArgument('lidar_ip', default_value='192.168.1.100'),
+        *[DeclareLaunchArgument('lidar_' + k, default_value='0.0', description='base_link->livox_frame') for k in LIDAR_POSE],
         DeclareLaunchArgument('bag', default_value=''),
         DeclareLaunchArgument('rate', default_value='1.0'),
         DeclareLaunchArgument('nav', default_value='false'),

@@ -59,6 +59,9 @@ MirrorMe(mirrormetech.com) **BPX 4족로봇**을 로봇에 올린 **미니PC**(U
   - **점검 탭**: 배터리 장기 기록(~/bpx/logs/battery_YYYYMMDD.csv, 10 s, 웹 재시작해도 이어짐)·완충/남은 시간 추정,
     IMU 축 점검(앞 들기 pitch<0·ax>0, 왼쪽 들기 roll>0·ay>0 자동 판정), 주행 점검(누르는 동안만 프리셋 속도, 방향·추종률·지연·전류),
     거리 정확도(odom vs 줄자), 서기 대기 전력(30 s). fake 시험 check_scenario.py 7항목, imu_wiz.py
+  - **설정(시스템 탭)**: 속도 상한(브리지 파라미터 실행 중 변경, SDK Walk 상한 1.5/0.5/2.0 초과 거부, 브리지 재시작 시 기본값),
+    라이다 IP·장착 위치/자세(수평/거꾸로/20° 숙임 프리셋)·2D 지도 장애물 높이 → ~/bpx/config/web_settings.json → 세션 launch 인자
+  - **Nav2 시험(조종 탭)**: 라이다·지도 없이 로봇 주변 30 m 빈 지도 + map->odom 고정 + 다리 odom (nav.launch.py). 장애물 못 봄
   - 자동 실행 서비스가 `web:=true` 로 띄움. fake 시험: lidar_ws/webtest/scenario.py (10항목), gp_test.py (게임패드 4항목)
 - `scripts/bpx_cmd.py` ROS 없이 단발 동작 (check/watch/stand/sit/damping/zero, --fake)
 - `setup/` setup_minipc.sh, bpx_env.sh(ROS_DOMAIN_ID=90), net_bpx.sh(nmcli 고정 IP: eno1=로봇, enp4s0=라이다), netplan-bpx.yaml(참고용)

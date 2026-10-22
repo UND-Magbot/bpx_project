@@ -69,6 +69,7 @@
     <div class="maphead">
       <h2>지도 · 위치 <span id="frame" class="muted"></span></h2>
       <div>
+        <button id="b-navtest" class="small" title="라이다·지도 없이 다리 odom 만으로 Nav2 목표 주행 시험">Nav2 시험</button>
         <button id="b-init" class="small" title="지도에서 로봇 위치를 누르고 끌어 방향 지정 (위치추정 초기화)">초기 위치</button>
         <button id="b-goal" class="small" title="지도에서 누르고 끌어 방향 지정">목표 지정</button>
         <button id="b-cancel" class="small">목표 취소</button>
@@ -228,6 +229,35 @@
     <div id="sys-bars"></div>
     <h2>온도</h2>
     <dl class="stats" id="sys-temps"></dl>
+
+    <h2>설정 · 속도 상한 <span class="muted">브리지를 다시 켜면 기본값(0.4 / 0.25 / 1.0)으로 돌아감</span></h2>
+    <div class="setgrid">
+      <label>전후 (m/s, ≤1.5)<input id="lim-vx" type="number" step="0.05" min="0.05" max="1.5"></label>
+      <label>좌우 (m/s, ≤0.5)<input id="lim-vy" type="number" step="0.05" min="0" max="0.5"></label>
+      <label>회전 (rad/s, ≤2.0)<input id="lim-wz" type="number" step="0.1" min="0.1" max="2.0"></label>
+      <label>명령 끊김 정지 (s)<input id="lim-to" type="number" step="0.1" min="0.2" max="2.0"></label>
+    </div>
+    <button id="lim-apply" class="wide">속도 상한 적용</button>
+
+    <h2>설정 · 라이다 <span class="muted">다음 매핑·위치추정부터 적용</span></h2>
+    <div class="setgrid">
+      <label>IP (192.168.1.1XX)<input id="ld-ip"></label>
+      <label>x 앞 (m)<input id="ld-x" type="number" step="0.01"></label>
+      <label>y 왼쪽 (m)<input id="ld-y" type="number" step="0.01"></label>
+      <label>z 위 (m)<input id="ld-z" type="number" step="0.01"></label>
+      <label>roll (°)<input id="ld-roll" type="number" step="1"></label>
+      <label>pitch (°, + 앞으로 숙임)<input id="ld-pitch" type="number" step="1"></label>
+      <label>yaw (°)<input id="ld-yaw" type="number" step="1"></label>
+    </div>
+    <div class="btns three"><button data-mount="level">수평 장착</button><button data-mount="flip">거꾸로 장착</button><button data-mount="tilt">앞으로 20° 숙임</button></div>
+
+    <h2>설정 · 2D 지도 <span class="muted">지면 기준 장애물 높이 · 다음 지도 처리부터</span></h2>
+    <div class="setgrid">
+      <label>해상도 (m)<input id="oc-res" type="number" step="0.01" min="0.02" max="0.5"></label>
+      <label>장애물 최소 높이 (m)<input id="oc-min" type="number" step="0.05"></label>
+      <label>장애물 최대 높이 (m)<input id="oc-max" type="number" step="0.1"></label>
+    </div>
+    <button id="set-save" class="wide primary">라이다 · 2D 지도 설정 저장</button>
   </section>
   <section class="panel">
     <h2>네트워크</h2>

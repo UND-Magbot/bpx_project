@@ -42,11 +42,14 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import BatteryState, Imu, JointState, PointCloud2
 from std_msgs.msg import String
+from rcl_interfaces.msg import Parameter as ParamMsg, ParameterType, ParameterValue
+from rcl_interfaces.srv import SetParameters
 from std_srvs.srv import SetBool, Trigger
 from tf2_ros import Buffer, TransformListener
 
 from bpx_web.checks import BatteryLog, DriveTest
 from bpx_web.maps import MapStore, pool_grid
+from bpx_web import settings as cfg
 from bpx_web.procs import SessionManager
 from bpx_web.sysinfo import SysInfo
 
@@ -102,7 +105,6 @@ class WebNode(Node):
         self.sys = SysInfo()
         self.sysinfo = {}
         # 매핑 / 지도 관리
-        self.lidar_ip = p('lidar_ip', '192.168.1.100').value
         self.test_bag_custom = p('test_bag_custom', os.path.join(BAG_DIR, 'aist_custom')).value
         self.test_bag_pc2 = p('test_bag_pc2', os.path.join(BAG_DIR, 'rosbag2_2024_04_16-14_17_01')).value
         self.test_bag_rate = p('test_bag_rate', 1.0).value
@@ -129,6 +131,7 @@ class WebNode(Node):
         self.trig = {n: self.create_client(Trigger, f'{bridge}/{n}')
                      for n in ('stand', 'sit', 'damping', 'zero', 'walk', 'run')}
         self.motion_cli = self.create_client(SetBool, f'{bridge}/set_motion')
+        self.param_cli = self.create_client(SetParameters, f'{bridge}/set_parameters')
         self.nav = ActionClient(self, NavigateToPose, 'navigate_to_pose')
         self.tf = Buffer()
         self.tf_listener = TransformListener(self.tf, self)
@@ -149,6 +152,8 @@ class WebNode(Node):
             self.status = dict(st, _t=time.time())
             if self.test:
                 self.test.add_current(st.get('battery_current'))
+            if st.get('limits'):                        # 조이스틱 상한 = 브리지의 현재 상한
+                self.max_v = tuple(float(v) for v in st['limits'][:3])
         for k, label in (('connected', '로봇 연결'), ('mode', '브리지 모드'), ('allow_motion', '조종 모드')):
             if prev and prev.get(k) != st.get(k):
                 self.event(f"{label}: {prev.get(k)} → {st.get(k)}")
@@ -189,6 +194,7 @@ class WebNode(Node):
             info = self.sys.collect()
         except Exception as e:
             info = {'error': str(e)}
+        info['settings'] = cfg.load()
         info['ros_nodes'] = sorted(f"{ns.rstrip('/')}/{n}" for n, ns in self.get_node_names_and_namespaces())
         with self.lock:
             self.sysinfo = info
@@ -492,7 +498,7 @@ class WebNode(Node):
             if not os.path.isdir(bag):
                 raise ValueError(f"시험용 bag 없음: {bag}")
             return ['source:=bag', f'bag:={bag}', f'rate:={self.test_bag_rate}']
-        return ['source:=live', f'lidar_ip:={self.lidar_ip}']
+        return ['source:=live'] + cfg.lidar_launch_args()
 
     def mapping_start(self, name, source):
         if self.maps.path(name) and os.path.exists(self.maps.path(name)):
@@ -502,7 +508,7 @@ class WebNode(Node):
         self.sessions.start('mapping', cmd, {'map': name, 'source': source})
         os.makedirs(self.maps.path(name), exist_ok=True)
         self.maps.write_meta(name, created=time.strftime('%Y-%m-%d %H:%M'),
-                             source='시험 bag' if source == 'bag' else f'라이다 {self.lidar_ip}')
+                             source='시험 bag' if source == 'bag' else f"라이다 {cfg.load()['lidar']['ip']}")
         return self.event(f"매핑 시작: {name} ({'시험 bag' if source == 'bag' else '라이다'})", True)
 
     async def mapping_save(self):
@@ -544,6 +550,46 @@ class WebNode(Node):
         await asyncio.get_event_loop().run_in_executor(None, self.sessions.stop)
         return self.event(f"{'매핑' if st and st['kind'] == 'mapping' else '위치추정'} 세션 종료", True)
 
+    async def set_limits(self, vx, vy, wz, timeout):
+        def dparam(name, v):
+            return ParamMsg(name=name, value=ParameterValue(type=ParameterType.PARAMETER_DOUBLE, double_value=float(v)))
+        if not self.param_cli.wait_for_service(timeout_sec=0.5):
+            return self.event('속도 상한: 브리지 없음', False)
+        req = SetParameters.Request(parameters=[dparam('max_vx', vx), dparam('max_vy', vy), dparam('max_wz', wz),
+                                                dparam('cmd_timeout', timeout)])
+        fut = self.param_cli.call_async(req)
+        for _ in range(100):
+            if fut.done():
+                break
+            await asyncio.sleep(0.05)
+        if not fut.done():
+            return self.event('속도 상한: 응답 없음', False)
+        bad = [r.reason for r in fut.result().results if not r.successful]
+        if bad:
+            return self.event('속도 상한 거부: ' + bad[0], False)
+        return self.event(f"속도 상한 변경: 전후 {vx} · 좌우 {vy} m/s · 회전 {wz} rad/s · 타임아웃 {timeout} s"
+                          " (브리지를 다시 켜면 기본값으로 돌아감)", True)
+
+    def nav_test_start(self):
+        """Nav2 시험 (라이다·지도 없이): 로봇 주변 빈 지도 + map->odom 고정 + 실제 다리 odom."""
+        with self.lock:
+            pose = self.pose
+        if not pose:
+            raise ValueError('로봇 위치(odom)가 없음 (로봇 연결 확인)')
+        d = os.path.expanduser('~/.ros/bpx_web_sessions')
+        os.makedirs(d, exist_ok=True)
+        size, res = 30.0, 0.05                       # 로봇 주변 30 x 30 m 빈 지도
+        n = int(size / res)
+        with open(os.path.join(d, 'navtest_map.pgm'), 'wb') as f:
+            f.write(b'P5\n%d %d\n255\n' % (n, n) + bytes([254]) * (n * n))
+        with open(os.path.join(d, 'navtest_map.yaml'), 'w') as f:
+            f.write(f"image: navtest_map.pgm\nmode: trinary\nresolution: {res}\n"
+                    f"origin: [{pose[1] - size / 2:.3f}, {pose[2] - size / 2:.3f}, 0.0]\n"
+                    "negate: 0\noccupied_thresh: 0.65\nfree_thresh: 0.25\n")
+        cmd = ['ros2', 'launch', 'bpx_ros', 'nav.launch.py', f"map:={os.path.join(d, 'navtest_map.yaml')}"]
+        self.sessions.start('nav_test', cmd, {'map': '(빈 지도)', 'source': 'odom', 'nav': True})
+        return self.event('Nav2 시험 시작 (라이다 없이, 다리 odom 만) · 지도에서 "목표 지정"', True)
+
     def init_pose(self, x, y, yaw):
         msg = PoseWithCovarianceStamped()
         msg.header.frame_id = 'map'
@@ -566,7 +612,7 @@ class WebNode(Node):
 
 MAP_COMMANDS = ('mapping_start', 'mapping_save', 'mapping_cancel', 'loc_start', 'session_stop',
                 'map_activate', 'map_rename', 'map_delete', 'map_process', 'init_pose',
-                'test_begin', 'test_end', 'test_cancel')
+                'test_begin', 'test_end', 'test_cancel', 'set_limits', 'save_settings', 'nav_test_start')
 
 
 async def run_map_command(node: WebNode, kind, msg):
@@ -606,6 +652,13 @@ async def run_map_command(node: WebNode, kind, msg):
             node.test_begin(msg.get('name', ''))
         elif kind == 'test_end':
             node.test_end(msg.get('actual_m'))
+        elif kind == 'set_limits':
+            await node.set_limits(msg['vx'], msg['vy'], msg['wz'], msg.get('timeout', 0.5))
+        elif kind == 'save_settings':
+            cfg.save(msg.get('settings', {}))
+            node.event('설정 저장 (다음 매핑·위치추정·지도 처리부터 적용)', True)
+        elif kind == 'nav_test_start':
+            node.nav_test_start()
         elif kind == 'test_cancel':
             with node.lock:
                 node.test = None

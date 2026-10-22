@@ -53,6 +53,7 @@ function render() {
   $('hot').hidden = !(conn && mt && Math.max(...mt) >= TEMP_HOT);
   $('s-mode').textContent = alive ? (MODE[st.mode] ?? st.mode) : '-';
   renderBatt(st, conn);
+  renderNavTest();
   $('s-temp').textContent = st.motor_temp_max != null ? `${st.motor_temp_max} ℃` : '-';
   const o = S && S.odom;
   $('s-vel').textContent = o && o.vx != null ? `${o.vx} / ${o.vy} m/s · ${o.wz} rad/s` : '-';
@@ -428,6 +429,7 @@ function bar(label, pct, text) {
 }
 function renderSys() {
   if (!SYS) return;
+  fillSettings();
   if (SYS.error) { $('sys-info').innerHTML = `<dt>오류</dt><dd>${SYS.error}</dd>`; return; }
   $('sys-info').innerHTML = [['호스트', SYS.host], ['시각', SYS.time], ['가동 시간', `${SYS.uptime_h} 시간`],
     ['부하 (1/5/15분)', SYS.load.join(' / ') + ` (코어 ${SYS.cpu_count})`]].map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
@@ -709,6 +711,52 @@ window.bpxTest = {
     S.imu = real; return $('imu-result').innerText;
   },
 };
+
+// ---------------- 시스템 탭 설정 / Nav2 시험 ----------------
+let setLoaded = false, limLoaded = false;
+const R2D = 180 / Math.PI;
+function fillSettings() {
+  const st = (S && S.status) || {};
+  if (!limLoaded && st.limits) {
+    [$('lim-vx').value, $('lim-vy').value, $('lim-wz').value, $('lim-to').value] = st.limits; limLoaded = true;
+  }
+  if (!setLoaded && SYS && SYS.settings) {
+    const l = SYS.settings.lidar, o = SYS.settings.occ;
+    $('ld-ip').value = l.ip; $('ld-x').value = l.x; $('ld-y').value = l.y; $('ld-z').value = l.z;
+    $('ld-roll').value = Math.round(l.roll * R2D); $('ld-pitch').value = Math.round(l.pitch * R2D); $('ld-yaw').value = Math.round(l.yaw * R2D);
+    $('oc-res').value = o.resolution; $('oc-min').value = o.obstacle_min; $('oc-max').value = o.obstacle_max;
+    setLoaded = true;
+  }
+}
+$('lim-apply').onclick = () => {
+  const v = ['lim-vx', 'lim-vy', 'lim-wz', 'lim-to'].map((id) => parseFloat($(id).value));
+  if (v.some((x) => isNaN(x))) { alert('숫자를 넣으세요'); return; }
+  if ((v[0] > 0.8 || v[2] > 1.5) && !confirm(`속도 상한을 크게 올립니다 (전후 ${v[0]} m/s, 회전 ${v[2]} rad/s).\n주변이 넓고 비어 있는지 확인했나요?`)) return;
+  send({ type: 'set_limits', vx: v[0], vy: v[1], wz: v[2], timeout: v[3] }); limLoaded = false;
+};
+document.querySelectorAll('[data-mount]').forEach((b) => b.onclick = () => {
+  const m = b.dataset.mount;
+  $('ld-roll').value = m === 'flip' ? 180 : 0; $('ld-pitch').value = m === 'tilt' ? 20 : 0; $('ld-yaw').value = 0;
+});
+$('set-save').onclick = () => {
+  const n = (id) => parseFloat($(id).value);
+  send({ type: 'save_settings', settings: {
+    lidar: { ip: $('ld-ip').value.trim(), x: n('ld-x'), y: n('ld-y'), z: n('ld-z'),
+             roll: n('ld-roll') / R2D, pitch: n('ld-pitch') / R2D, yaw: n('ld-yaw') / R2D },
+    occ: { resolution: n('oc-res'), obstacle_min: n('oc-min'), obstacle_max: n('oc-max') } } });
+  setLoaded = false;
+};
+$('b-navtest').onclick = () => {
+  const ss = session();
+  if (ss && ss.kind === 'nav_test') { send({ type: 'session_stop' }); return; }
+  if (ss) { alert('다른 세션(매핑/위치추정)이 실행 중입니다'); return; }
+  if (confirm('Nav2 시험을 시작합니다 (라이다·지도 없이 다리 odom 만).\n장애물을 보지 못하니 주변이 비어 있는 곳에서 1~2 m 목표만 쓰세요.\n시작 후 지도에서 "목표 지정"으로 목표를 찍으면 로봇이 움직입니다 (조종 모드·서기 필요).')) send({ type: 'nav_test_start' });
+};
+function renderNavTest() {
+  const ss = session(), on = ss && ss.kind === 'nav_test';
+  $('b-navtest').classList.toggle('on', !!on);
+  $('b-navtest').textContent = on ? 'Nav2 시험 정지' : 'Nav2 시험';
+}
 
 drawJoy();
 connect();

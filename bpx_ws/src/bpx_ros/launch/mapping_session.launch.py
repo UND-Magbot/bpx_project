@@ -13,6 +13,8 @@ from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchD
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 
+LIDAR_POSE = ('x', 'y', 'z', 'roll', 'pitch', 'yaw')   # 라이다 장착 위치·자세 -> lidar.launch.py
+
 
 def _session(context):
     arg = lambda n: LaunchConfiguration(n).perform(context)
@@ -27,7 +29,8 @@ def _session(context):
     else:
         acts.append(IncludeLaunchDescription(
             PythonLaunchDescriptionSource(os.path.join(launch_dir, 'lidar.launch.py')),
-            launch_arguments={'lidar_ip': arg('lidar_ip'), 'xfer_format': '1'}.items()))
+            launch_arguments=dict({'lidar_ip': arg('lidar_ip'), 'xfer_format': '1'},
+                                  **{k: arg('lidar_' + k) for k in LIDAR_POSE}).items()))
     return acts
 
 
@@ -36,6 +39,7 @@ def generate_launch_description():
         DeclareLaunchArgument('map_name', default_value='map'),
         DeclareLaunchArgument('source', default_value='live', description='live | bag'),
         DeclareLaunchArgument('lidar_ip', default_value='192.168.1.100'),
+        *[DeclareLaunchArgument('lidar_' + k, default_value='0.0', description='base_link->livox_frame') for k in LIDAR_POSE],
         DeclareLaunchArgument('bag', default_value=''),
         DeclareLaunchArgument('rate', default_value='1.0'),
         OpaqueFunction(function=_session),

@@ -18,6 +18,7 @@ import time
 
 import rclpy
 from rclpy.executors import ExternalShutdownException
+from rcl_interfaces.msg import SetParametersResult
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from geometry_msgs.msg import Twist, TransformStamped
@@ -38,6 +39,7 @@ ZERO_SETTLE_S = 1.0      # 영점 설정 후 서기까지 대기 (SDK 예제·Mi
 # 서기 요청을 무시한다. getChargerIn1/2 는 이 펌웨어에서 충전 중에도 0 이라 쓰지 않는다
 CHARGE_ON_A = 0.5
 CHARGE_OFF_A = 0.2
+LIMIT_MAX = (1.5, 0.5, 2.0)  # SDK Walk 보행 속도 상한 [x m/s, y m/s, yaw rad/s] (README Gait Velocity Limits)
 
 
 def clamp(v, lim):
@@ -70,6 +72,8 @@ class BpxBridge(Node):
         self.max_vy = p("max_vy", 0.25).value
         self.max_wz = p("max_wz", 1.0).value
         self.cmd_timeout = p("cmd_timeout", 0.5).value
+        # 속도 상한·타임아웃은 실행 중에도 바꿀 수 있다 (관리자 웹 설정). SDK Walk 상한을 넘지 못하게 막는다
+        self.add_on_set_parameters_callback(self.on_params)
         cmd_topic = p("cmd_topic", "/cmd_vel").value
         odom_topic = p("odom_topic", "/odom/mc_odom").value
         self.odom_frame = p("odom_frame", "odom").value
@@ -145,6 +149,21 @@ class BpxBridge(Node):
             return
         ok, text = self.request(what)
         (self.get_logger().info if ok else self.get_logger().warn)(f"/bpx/motion: {text}")
+
+    def on_params(self, params):
+        bounds = {"max_vx": (0.05, LIMIT_MAX[0]), "max_vy": (0.0, LIMIT_MAX[1]),
+                  "max_wz": (0.1, LIMIT_MAX[2]), "cmd_timeout": (0.2, 2.0)}
+        for prm in params:
+            if prm.name in bounds:
+                lo, hi = bounds[prm.name]
+                v = prm.value
+                if not isinstance(v, (int, float)) or not lo <= float(v) <= hi:
+                    return SetParametersResult(successful=False, reason=f"{prm.name} 허용 범위 {lo}~{hi}")
+        for prm in params:
+            if prm.name in bounds:
+                setattr(self, prm.name, float(prm.value))
+                self.get_logger().warn(f"설정 변경: {prm.name} = {float(prm.value)}")
+        return SetParametersResult(successful=True)
 
     def set_motion_cb(self, req, res):
         self.set_motion(bool(req.data))
@@ -436,6 +455,7 @@ class BpxBridge(Node):
         st = {"backend": self.backend_kind, "connected": self.connected, "mode": self.mode,
               "motion_state": self.motion_state, "control_mode": self.control_mode,
               "allow_motion": self.allow_motion, "charging": self.charging,
+              "limits": [self.max_vx, self.max_vy, self.max_wz, self.cmd_timeout],
               "battery_current": self.battery_current}
         if self.connected:
             try:

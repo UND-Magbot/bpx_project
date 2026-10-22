@@ -11,13 +11,12 @@ import subprocess
 import threading
 import time
 
+from bpx_web import settings
+
 MAP_ROOT = os.path.expanduser('~/bpx/maps')
 ALIGN = os.path.expanduser('~/bpx/scripts/align_map_gravity.py')
 ACTIVE = os.path.join(MAP_ROOT, 'active.json')
 NAME_RE = re.compile(r'^[\w\-]{1,40}$')      # 영문·숫자·한글·_·-
-# Nav2 2D 지도 생성 (lidar_localization_ros2 도구). 팽창은 Nav2 costmap 이 하므로 0
-OCC_ARGS = ['--resolution', '0.05', '--obstacle-height-m', '0.3', '--max-obstacle-height-m', '2.0',
-            '--inflate-radius-m', '0', '--padding-m', '2.0', '--min-points-per-cell', '2']
 
 
 def pool_grid(grid, k, occ, free, unknown):
@@ -176,14 +175,15 @@ class MapStore:
             self._step(name, '2/2 Nav2 2D 지도 생성')
             r = subprocess.run(['ros2', 'run', 'lidar_localization_ros2', 'generate_occupancy_map_from_pcd',
                                 '--pcd', self.path(name, 'map_level.pcd'), '--output-dir', self.path(name),
-                                '--map-name', 'map'] + OCC_ARGS, capture_output=True, text=True, timeout=600)
+                                '--map-name', 'map'] + settings.occ_args(), capture_output=True, text=True, timeout=600)
             if r.returncode or not os.path.exists(self.path(name, 'map.yaml')):
                 raise RuntimeError('2D 지도 생성 실패: ' + (r.stderr or r.stdout)[-300:])
             grid = None
             try:
                 from PIL import Image
                 w, h = Image.open(self.path(name, 'map.pgm')).size
-                grid = {'w': w, 'h': h, 'res': 0.05, 'm': [round(w * 0.05, 1), round(h * 0.05, 1)]}
+                res = settings.load()['occ']['resolution']
+                grid = {'w': w, 'h': h, 'res': res, 'm': [round(w * res, 1), round(h * res, 1)]}
             except Exception:
                 pass
             self.write_meta(name, processed=time.strftime('%Y-%m-%d %H:%M'), grid=grid)
