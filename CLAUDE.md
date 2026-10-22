@@ -67,7 +67,8 @@ MirrorMe(mirrormetech.com) **BPX 4족로봇**을 로봇에 올린 **미니PC**(U
 - `setup/` setup_minipc.sh, bpx_env.sh(ROS_DOMAIN_ID=90), net_bpx.sh(nmcli 고정 IP: eno1=로봇, enp4s0=라이다), netplan-bpx.yaml(참고용)
 - `third_party/bpx_sdk/` SDK wheel (cp310 x86_64 / aarch64)
 - `docker/` 로봇 없이 시험 (test_fake.sh, 18항목)
-- `docs/` 매뉴얼 PDF, 업무일지
+- `docs/` 매뉴얼 PDF, 업무일지/, 개발문서_인수인계.md, 전원설계_초안.md
+- 원격: GitHub UND-Magbot/bpx_project (공개). push 는 gh CLI 로그인 계정 Choigyuhwi
 
 ## 작업 규칙
 - **안전 기본값 유지**: allow_motion 기본 false, auto_stand 기본 false, /cmd_vel 타임아웃 0.5 s, 속도 제한(0.4/0.25/1.0)
@@ -78,7 +79,7 @@ MirrorMe(mirrormetech.com) **BPX 4족로봇**을 로봇에 올린 **미니PC**(U
   - 수동 fake 시험은 `ROS_DOMAIN_ID`를 90 아닌 값으로 (서비스 브리지와 토픽 섞임 방지)
   - 비대화형 셸에서 `ros2 launch ... &` 로 띄우면 launch 가 SIGINT 무시 상태를 상속 → `kill -INT <launch>` 가 안 먹고 노드가 남음. 시험 정리는 노드 PID 에 직접 SIGINT
 - 인수인계 문서: `docs/개발문서_인수인계.md` (구조·설치·운용·시험·함정 정리, 큰 변경 시 함께 갱신)
-- 업무일지는 `docs/업무일지_YYYY-MM-DD.md`, "Noah 일일 업무 보고" 형식, "~했다" 체
+- 업무일지는 `docs/업무일지/업무일지_YYYY-MM-DD.md`, "Noah 일일 업무 보고" 형식, "~했다" 체
 
 ## 진행 상황
 - 2026-10-13: 자료 분석, bpx_ros 패키지·설치 스크립트·Docker 테스트(18/18) 완료. 실기 미실행
